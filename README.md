@@ -54,7 +54,7 @@ memory_cache = EntityCache()  # Uses in-memory backend by default
 #### With Entity Tracking
 
 ```python
-@cache(entity_type="user")
+@cache(entity="user")
 def get_user(user_id):
     # Your database query here
     return {"id": user_id, "name": f"User {user_id}"}
@@ -83,25 +83,19 @@ def calculate_value(x, y):
 # Invalidate by function name
 cache.invalidate_func(calculate_value)
 
-# Or with entity_type but disabled entity tracking
-@cache(entity_type="product", func_key_only=True)
-def get_product(product_id):
-    # This has entity_type but won't be part of entity-based invalidation
-    # Useful when you want consistent naming but don't need tracking
-    return {"id": product_id, "name": f"Product {product_id}"}
 ```
 
 ### Custom ID Fields
 
 ```python
-@cache(entity_type="customer", id_field="customer_id")
+@cache(entity="customer", id_field="customer_id")
 def get_customer(customer_id):
     # Your database query here
     return {"customer_id": customer_id, "name": f"Customer {customer_id}"}
 ```
 ## How It Works
 
-When a function is decorated with `@cache(entity_type="user")`:
+When a function is decorated with `@cache(entity="user")`:
 
 1. The decorator **caches the function result**
 2. It **extracts entity IDs** from the result (e.g., `{"id": 42, ...}` or using a custom ID field)
@@ -120,37 +114,40 @@ This means you don't need to remember all the different ways an entity might be 
 
 ### Cross-Service Caching
 
-By default, functions that access the same entity will share cache entries across different functions:
+By default, functions that access the same entity will not share cache entries across different functions:
 
 ```python
 # In service A
-@cache(entity_type="user")
+@cache(entity="user")
 def get_user(user_id):
     return {"id": user_id, "name": "User from Service A"}
 
 # In service B
-@cache(entity_type="user")
+@cache(entity="user")
 def fetch_user(id):  # Different function name
     return {"id": id, "name": "User from Service B"}
 ```
 
-Both services will share the same cache entries automatically when accessing the same entity ID. 
 
-For more complex parameters or to disable this behavior, use `func_key_only=True`:
+This way both services will share the same cache entries automatically when accessing the same entity ID. 
 
 ```python
-# This function will use its own function-specific cache, not shared with others
-@cache(entity_type="user", func_key_only=True)
-def get_filtered_users(user_id, filters=None):
-    # Complex filtering operation that shouldn't share cache with other functions
-    return filtered_results
+# In service A
+@cache(entity="user", scope="entity")
+def get_user(user_id):
+    return {"id": user_id, "name": "User from Service A"}
+
+# In service B
+@cache(entity="user", scope="entity")
+def fetch_user(id):  # Different function name
+    return {"id": id, "name": "User from Service B"}
 ```
 
 For backward compatibility, you can also use the explicit `cache_key` approach:
 
 ```python
 # Using explicit cache key for complex cases
-@cache(entity_type="user", cache_key="user.get_by_id", normalize_args=True)
+@cache(entity="user", cache_key="user.get_by_id", normalize_args=True)
 def get_user_with_extra_data(user_id, include_details=False):
     return {"id": user_id, "name": "User with details", "details": {...} if include_details else None}
 ```
@@ -197,12 +194,12 @@ cache = EntityCache(
 )
 
 # Now you can cache objects that aren't JSON-serializable
-@cache(entity_type="event")
+@cache(entity="event")
 def get_event(event_id):
     return {
         "id": event_id,
         "start_time": datetime.now(),  # Not JSON serializable
-        "attendees": set([1, 2, 3])    # Not JSON serializable
+        "attendees": set([1, 2, 3]) # same here
     }
 ```
 ## API Reference
@@ -227,12 +224,12 @@ Decorator for caching function results.
 
 ```python
 @cache(
-    entity_type="user",  # Type of entity returned (optional)
+    entity="user",  # Type of entity returned (optional)
     cache_key=None,  # Custom cache key for function (optional)
     normalize_args=False,  # Whether to normalize arguments (optional)
     ttl=None,  # Override default TTL (optional)
     id_field="id",  # Field name containing entity IDs (optional)
-    func_key_only=False  # If True, disables cross-function sharing (optional)
+    scope="function"  # 'function' (default) or 'entity' for cross-function sharing
 )
 def my_function():
     # ...
@@ -244,7 +241,7 @@ def my_function():
 cache.invalidate_entity("user", 42)
 
 # Invalidate all caches for a specific function
-cache.invalidate_function("get_user")
+cache.invalidate_function(function_name)
 
 # Invalidate a specific function call
 cache.invalidate_key("get_user", 42)

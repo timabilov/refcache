@@ -88,7 +88,7 @@ def test_entity_cache_with_entities(memory_cache):
     """Test caching with entity tracking."""
     call_count = 0
 
-    @memory_cache(entity_type="user")
+    @memory_cache(entity="user")
     def get_user(user_id):
         nonlocal call_count
         call_count += 1
@@ -182,11 +182,11 @@ def test_entity_cache_invalidate_key(memory_cache):
     assert call_count == 3
 
 
-def test_plain_cache_without_entity_type(memory_cache):
-    """Test using the cache as a plain function cache without entity type."""
+def test_plain_cache_without_entity(memory_cache):
+    """Test using the cache as a plain function cache without entity."""
     call_count = 0
 
-    @memory_cache()  # No entity_type specified
+    @memory_cache()  # No entity specified
     def get_data(data_id):
         nonlocal call_count
         call_count += 1
@@ -222,11 +222,11 @@ def test_plain_cache_without_entity_type(memory_cache):
     assert call_count == 3  # Should increase after invalidation
 
 
-def test_plain_cache_with_func_key_only(memory_cache):
-    """Test using the cache with entity_type but func_key_only=True."""
+def test_plain_cache_with_function_scope(memory_cache):
+    """Test using the cache with entity but scope='function'."""
     call_count = 0
 
-    @memory_cache(entity_type="product", func_key_only=True)
+    @memory_cache(entity="product", scope="function")
     def get_product(product_id):
         nonlocal call_count
         call_count += 1
@@ -260,7 +260,7 @@ def test_mixed_entity_and_plain_caching(memory_cache):
     call_count = 0
 
     # Function with entity tracking
-    @memory_cache(entity_type="user")
+    @memory_cache(entity="user")
     def get_user(user_id):
         nonlocal call_count
         call_count += 1
@@ -273,8 +273,8 @@ def test_mixed_entity_and_plain_caching(memory_cache):
         call_count += 1
         return {"user_id": user_id, "logins": 10, "last_seen": "2023-01-01"}
 
-    # Entity-tracked function with same entity type but func_key_only=True
-    @memory_cache(entity_type="user", func_key_only=True)
+    # Entity-tracked function with same entity type but scope='function'
+    @memory_cache(entity="user", scope="function")
     def get_user_preferences(user_id):
         nonlocal call_count
         call_count += 1
@@ -303,7 +303,7 @@ def test_mixed_entity_and_plain_caching(memory_cache):
     get_user_stats(1)
     assert call_count == 4
     
-    # func_key_only=True function should still use cache despite having entity_type
+    # scope "function" should still use cache despite having entity
     get_user_preferences(1)
     assert call_count == 4
 
@@ -470,7 +470,7 @@ def test_entity_cache_custom_id_field(memory_cache):
     """Test using a custom ID field for entity tracking."""
     call_count = 0
 
-    @memory_cache(entity_type="customer", id_field="customer_id")
+    @memory_cache(entity="customer", id_field="customer_id")
     def get_customer(customer_id):
         nonlocal call_count
         call_count += 1
@@ -497,7 +497,7 @@ def test_entity_cache_extraction_from_list(memory_cache):
     """Test extracting entity IDs from a list of objects."""
     call_count = 0
 
-    @memory_cache(entity_type="user")
+    @memory_cache(entity="user")
     def get_users():
         nonlocal call_count
         call_count += 1

@@ -12,7 +12,7 @@ redis_backend = RedisBackend(redis_client, key_prefix="app:")
 # Create cache with the Redis backend
 cache = EntityCache(backend=redis_backend, ttl=3600)
 
-@cache(entity_type="user")
+@cache(entity="user")
 def get_user(user_id):
     """Get a single user by ID."""
     # Your actual database query here
@@ -32,7 +32,7 @@ valkey_backend = RedisBackend(valkey_client, key_prefix="app:")
 # Create cache with the ValKey backend
 cache = EntityCache(backend=valkey_backend, ttl=3600)
 
-@cache(entity_type="product")
+@cache(entity="product")
 def get_product(product_id):
     """Get a product by ID."""
     return {"id": product_id, "name": f"Product {product_id}", "price": 19.99}
@@ -53,7 +53,7 @@ cache = EntityCache(backend=redis_backend)
 
 # No need for explicit cache_key - entity-based caching is now automatic
 @cache(
-    entity_type="user",
+    entity="user",
     normalize_args=True
 )
 def get_user_details(user_id):
@@ -65,17 +65,17 @@ def get_user_details(user_id):
 
 # This will automatically share cache with get_user_details when accessing same user_id
 @cache(
-    entity_type="user",
+    entity="user",
     normalize_args=True
 )
 def fetch_user(id):  # Different parameter name
     """Get user in service B."""
     return {"id": id, "name": "User Name", "email": "user@example.com"}
 
-# For functions where sharing is not desired, use func_key_only=True
+# For functions where sharing is not desired, use scope='function'
 @cache(
-    entity_type="user",
-    func_key_only=True,  # Prevents sharing with other functions
+    entity="user",
+    scope="function",  # Prevents sharing with other functions (default)
     normalize_args=True
 )
 def get_user_with_filtering(user_id, include_details=False):
@@ -87,7 +87,7 @@ def get_user_with_filtering(user_id, include_details=False):
 
 
 # Example 4: Complex filtering with multiple entities
-@cache(entity_type="user")
+@cache(entity="user")
 def find_users_by_filters(status=None, region=None, tags=None):
     """Find users matching various filters."""
     # Your database query here
@@ -129,7 +129,7 @@ def update_user(user_id, data):
 
 
 # Example 6: Working with multiple entities
-@cache(entity_type="order")
+@cache(entity="order")
 def get_order_with_items(order_id):
     """Get an order with all its items."""
     # This would be a database query joining orders and items
@@ -180,7 +180,7 @@ class CustomCache(EntityCache):
 
 
 # Example 8: Using custom ID fields
-@cache(entity_type="customer", id_field="customer_id")
+@cache(entity="customer", id_field="customer_id")
 def get_customer(customer_id):
     """Get a customer using a non-standard ID field."""
     # Your actual database query here
@@ -191,7 +191,7 @@ def get_customer(customer_id):
     }
 
 # Example of a database using UUID as _id
-@cache(entity_type="document", id_field="_id")
+@cache(entity="document", id_field="_id")
 def get_document(doc_id):
     """Get a document from a MongoDB-like database."""
     # Your actual database query here
@@ -250,7 +250,7 @@ pickle_cache = EntityCache(
     deserializer=pickle_deserializer
 )
 
-@pickle_cache(entity_type="event")
+@pickle_cache(entity="event")
 def get_event(event_id):
     """Get an event with datetime objects."""
     # Your actual database query here
@@ -371,7 +371,7 @@ memory_cache = EntityCache(
     debug=True  # Enable debug logging
 )
 
-@memory_cache(entity_type="product")
+@memory_cache(entity="product")
 def get_product_memory(product_id):
     """Get a product using memory cache."""
     # Your actual database query here

@@ -37,7 +37,7 @@ cache = EntityCache(backend=redis_backend, prefix="app:", ttl=3600)
 # Or use in-memory backend (default if no backend provided)
 memory_cache = EntityCache()
 
-@cache(entity_type="user")
+@cache(entity="user")
 def get_user(user_id):
     # Your database query here
     return {"id": user_id, "name": f"User {user_id}"}

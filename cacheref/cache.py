@@ -10,7 +10,7 @@ import hashlib
 import inspect
 import json
 import logging
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Literal, Optional, Tuple
 
 try:
     import msgspec.msgpack
@@ -94,28 +94,28 @@ class EntityCache:
 
     def __call__(
         self,
-        entity_type: Optional[str] = None,
+        entity: Optional[str] = None,
         cache_key: Optional[str] = None,
         normalize_args: bool = False,
         ttl: Optional[int] = None,
         id_field: str = 'id',
-        func_key_only: bool = False,
+        scope: Literal['function', 'entity'] = 'function',
     ):
         """
         Main decorator that caches function results.
 
         Args:
-            entity_type: The primary entity type this function deals with
-                        (e.g., 'user', 'product')
+            entity: The primary entity type this function deals with
+                  (e.g., 'user', 'product')
             cache_key: Optional custom key name for the cache to unify caching
                       across services or functions
             normalize_args: Whether to normalize argument values for consistent
                            cache keys across services
             ttl: Optional override for TTL (defaults to instance TTL)
             id_field: Name of the field containing entity IDs (default: 'id')
-            func_key_only: If True, uses function-specific caching only (no entity-based sharing).
-                          If False (default), enables cross-function sharing for the same entity type
-                          and ID, making the cache usable across different processes or services.
+            scope: Determines the scope of cache sharing, with two possible values:
+                  - 'function' (default): Function first caching with no cache sharing between same entity signatures
+                  - 'entity': Entity first caching - different functions with same entity and arguments share cache
 
         Returns:
             Decorated function
@@ -132,20 +132,19 @@ class EntityCache:
                 processed_args, processed_kwargs = self._normalize_params(
                     func, args, kwargs, normalize=normalize_args
                 )
-                
-                # Generate the appropriate key
-                if entity_type and not func_key_only:
-                    # Use entity-type-based key for cross-function sharing
-                    # This simplifies the approach while still enabling sharing
-                    key_prefix = f"entity_type:{entity_type}"
-                    func_key = self._generate_key(key_prefix, processed_args, processed_kwargs)
-                else:
-                    # Use function-specific key (original behavior)
-                    func_key = self._generate_key(func_key_name, processed_args, processed_kwargs)
 
+                # Determine which key to use for caching based on scope
+                if scope == 'function' or not entity:
+                    # Function scope - use function-specific key
+                    effective_key = func_key_name
+                elif scope == 'entity':
+                    # Entity scope - use entity-based key
+                    effective_key = f"entity:{entity}"
+                # Generate the appropriate key based on scope
+                effective_func_key = self._generate_key(effective_key, processed_args, processed_kwargs)
                 # Try to get the cached result
                 try:
-                    cached = self.backend.get(func_key)
+                    cached = self.backend.get(effective_func_key)
                     if cached:
                         logger.debug("[HIT]  %s %s %s", func.__name__, processed_args, processed_kwargs)
                         try:
@@ -153,7 +152,7 @@ class EntityCache:
                         except Exception as e:
                             logger.warning("Failed to deserialize cached data: %s", e)
                     else:
-                        logger.debug("Cache miss for function: %s %s", func.__name__, func_key)
+                        logger.debug("Cache miss for function: %s %s", func.__name__, effective_func_key)
                 except Exception as e:
                     logger.warning("Cache get operation failed: %s", e)
 
@@ -172,13 +171,13 @@ class EntityCache:
                     try:
                         pipeline = self.backend.pipeline()
                         pipeline.setex(
-                            func_key,
+                            effective_func_key,
                             effective_ttl,
                             serialized_result
                         )
 
                         # Register this key with entity index if an entity type is specified
-                        if entity_type and result:
+                        if entity and result:
                             # Get any entity IDs from the results
                             entity_ids = self._extract_entity_ids(result, id_field)
 
@@ -187,8 +186,8 @@ class EntityCache:
                                 for entity_id in entity_ids:
                                     # Create a direct index from entity to cache keys
                                     # Format: entity:type:id for consistent, clear naming
-                                    entity_key = f"entity:{entity_type}:{entity_id}"
-                                    pipeline.sadd(entity_key, func_key)
+                                    entity_key = f"entity:{entity}:{entity_id}"
+                                    pipeline.sadd(entity_key, effective_func_key)
 
                                     # Set TTL on the entity index slightly longer than the cache TTL
                                     # This helps prevent orphaned indices
@@ -341,27 +340,27 @@ class EntityCache:
 
         return ids
 
-    def invalidate_entity(self, entity_type: str, entity_id: Any):
+    def invalidate_entity(self, entity: str, entity_id: Any):
         """
         Invalidate all cached entries containing this entity.
 
         Args:
-            entity_type: Type of entity (e.g., 'user')
+            entity: Type of entity (e.g., 'user')
             entity_id: ID of the entity
 
         Returns:
             Number of keys invalidated
         """
         # Get the key for this entity
-        entity_key = f"entity:{entity_type}:{entity_id}"
-        logger.debug("Invalidating entity %s:%s", entity_type, entity_id)
+        entity_key = f"entity:{entity}:{entity_id}"
+        logger.debug("Invalidating entity %s:%s", entity, entity_id)
 
         try:
             # Get all cache keys directly for this entity
             cache_keys = self.backend.smembers(entity_key)
 
             if not cache_keys:
-                logger.debug("No cache keys found for entity %s:%s", entity_type, entity_id)
+                logger.debug("No cache keys found for entity %s:%s", entity, entity_id)
                 return 0
 
             # Convert from bytes if needed
@@ -382,7 +381,7 @@ class EntityCache:
                 pipeline.delete(entity_key)
 
                 result = pipeline.execute()
-                logger.info("Invalidated %d cache entries for %s:%s", len(cache_keys), entity_type, entity_id)
+                logger.info("Invalidated %d cache entries for %s:%s", len(cache_keys), entity, entity_id)
                 logger.debug("Keys invalidated: %s result: %s", cache_keys, result)
                 for key in self.backend.keys(f"*"):
                     try:

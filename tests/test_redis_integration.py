@@ -39,7 +39,7 @@ def test_redis_entity_tracking(redis_cache):
     """Test entity tracking with Redis backend."""
     call_count = 0
 
-    @redis_cache(entity_type="user")
+    @redis_cache(entity="user")
     def get_user(user_id):
         nonlocal call_count
         call_count += 1
@@ -79,13 +79,13 @@ def test_redis_cross_process_caching(redis_backend):
     # Define functions with both caches
     call_count = 0
 
-    @cache1(entity_type="user")
+    @cache1(entity="user", scope="entity")
     def get_user_cache1(user_id):
         nonlocal call_count
         call_count += 1
         return {"id": user_id, "name": f"User {user_id}"}
 
-    @cache2(entity_type="user")
+    @cache2(entity="user", scope="entity")
     def get_user_cache2(user_id):
         nonlocal call_count
         call_count += 1
@@ -115,8 +115,8 @@ def test_redis_cross_process_caching(redis_backend):
 
 
 @pytest.mark.redis
-def test_redis_func_key_only(redis_client, redis_backend):
-    """Test that func_key_only=True prevents cross-function cache sharing."""
+def test_redis_scope_function(redis_client, redis_backend):
+    """Test that scope='function' prevents cross-function cache sharing."""
     assert redis_client.keys("*") == []
     # Create two cache instances that share the same backend
     cache1 = EntityCache(
@@ -129,16 +129,16 @@ def test_redis_func_key_only(redis_client, redis_backend):
         ttl=60
     )
 
-    # Define functions with both caches, but use func_key_only=True for one
+    # Define functions with both caches, but use scope='function' for one
     call_count = 0
 
-    @cache1(entity_type="user")
+    @cache1(entity="user", scope="entity")
     def get_user_shared(user_id):
         nonlocal call_count
         call_count += 1
         return {"id": user_id, "name": f"User {user_id}"}
 
-    @cache2(entity_type="user", func_key_only=True)
+    @cache2(entity="user", scope="function")
     def get_user_isolated(user_id):
         nonlocal call_count
         call_count += 1
@@ -152,7 +152,7 @@ def test_redis_func_key_only(redis_client, redis_backend):
     # Call with isolated function should NOT use the shared cache
     user1_isolated = get_user_isolated(1)
     assert user1_isolated["id"] == 1
-    assert call_count == 2  # Should increase because func_key_only=True
+    assert call_count == 2  # Should increase because scope='function'
 
     # # Check what keys exist in Redis before invalidation
     # keys_before = redis_client.keys(f"{redis_backend.key_prefix}*")
@@ -196,8 +196,8 @@ def test_redis_msgspec_serialization(redis_client, redis_backend):
 
     call_count = 0
 
-    # Use func_key_only=True for consistent key naming in the test
-    @cache(entity_type="product", cache_key='get_product', func_key_only=True)
+    # Use scope="function" for consistent key naming in the test
+    @cache(entity="product", cache_key='get_product', scope="function")
     def get_product(product_id):
         nonlocal call_count
         call_count += 1
@@ -251,8 +251,8 @@ def test_redis_error_handling(redis_client, redis_backend, monkeypatch):
     
     call_count = 0
 
-    # Use func_key_only=True to force traditional function-based keys for this test
-    @cache(func_key_only=True)
+    # Use scope='function' to force traditional function-based keys for this test
+    @cache(scope="function")
     def test_func():
         nonlocal call_count
         call_count += 1
@@ -301,22 +301,22 @@ def test_redis_plain_caching_options(redis_backend):
     
     call_count = 0
     
-    # Plain cache with no entity_type
+    # Plain cache with no entity
     @cache()
     def get_data(data_id):
         nonlocal call_count
         call_count += 1
         return {"id": data_id, "value": f"Data {data_id}"}
     
-    # With entity_type but func_key_only=True
-    @cache(entity_type="product", func_key_only=True)
+    # With entity but scope="function"
+    @cache(entity="product", scope="function")
     def get_product(product_id):
         nonlocal call_count
         call_count += 1
         return {"id": product_id, "name": f"Product {product_id}"}
     
     # With entity tracking for comparison
-    @cache(entity_type="user")
+    @cache(entity="user")
     def get_user(user_id):
         nonlocal call_count
         call_count += 1
@@ -339,7 +339,7 @@ def test_redis_plain_caching_options(redis_backend):
     
     # Check which functions re-execute
     get_data(1)          # Plain cache - should use cache
-    get_product(1)       # func_key_only=True - should use cache
+    get_product(1)       # scope='function' - should use cache
     get_user(1)          # Entity-tracked - should re-execute
     assert call_count == 4
     
@@ -371,7 +371,7 @@ def test_redis_normalize_args(redis_backend):
     call_count = 0
 
     # Use normalize_args=True to get consistent caching across parameter styles
-    @cache(normalize_args=True, func_key_only=True)  # Using func_key_only for test consistency
+    @cache(normalize_args=True, scope="function")  # Using scope='function' for test consistency
     def search_products(filters=None, sort=None, limit=10):
         nonlocal call_count
         call_count += 1
@@ -418,7 +418,7 @@ def test_redis_normalize_args(redis_backend):
     # Test with lists and sets (should be normalized)
     call_count = 0
 
-    @cache(normalize_args=True, func_key_only=True)  # Using func_key_only for test consistency
+    @cache(normalize_args=True, scope="function")  # Using scope='function' test consistency
     def search_by_ids(ids, include_details=False):
         nonlocal call_count
         call_count += 1
@@ -457,7 +457,7 @@ def test_redis_backend_key_prefix_integration(redis_client):
     
     call_count = 0
     
-    @cache(entity_type="user", func_key_only=True)  # Use func_key_only for consistent test naming
+    @cache(entity="user", scope="function")  # Use scope="function" for consistent test naming
     def get_user(user_id):
         nonlocal call_count
         call_count += 1
