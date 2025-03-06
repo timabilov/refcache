@@ -19,6 +19,46 @@ def test_entity_cache_init():
     assert cache.deserializer == msgpack.decode
 
 
+def test_get_cache_key(memory_cache):
+    """Test getting cache key for a function."""
+    call_count = 0
+
+    @memory_cache()
+    def calculate_value(x, y, z=0):
+        nonlocal call_count
+        call_count += 1
+        return x + y + z
+    
+    # Get key by function object
+    key1 = memory_cache.get_cache_key(calculate_value, 1, 2)
+    
+    # Get key by function name
+    module_name = calculate_value.__module__
+    func_name = f"{module_name}.{calculate_value.__name__}"
+    key2 = memory_cache.get_cache_key(func_name, 1, 2)
+    
+    # Both should be the same
+    assert key1 == key2
+    
+    # The key should be properly formatted
+    assert key1.startswith(f"cache:{module_name}.calculate_value:")
+    
+    # Now use the key to make sure it actually works
+    
+    # Call the function to add it to cache
+    result = calculate_value(1, 2)
+    assert result == 3
+    assert call_count == 1
+    
+    # Delete using our retrieved key
+    memory_cache.backend.delete(key1)
+    
+    # Call again - should need to recalculate
+    result2 = calculate_value(1, 2)
+    assert result2 == 3
+    assert call_count == 2
+
+
 def test_entity_cache_custom_init():
     """Test EntityCache initialization with custom values."""
     backend = MemoryBackend()

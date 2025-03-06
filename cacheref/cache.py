@@ -125,23 +125,20 @@ class EntityCache:
         def decorator(func):
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
-                # Use custom cache key if provided, otherwise use function name
-                func_key_name = cache_key or func.__module__ + "." + func.__name__
-
                 # Get normalized parameters for the key
                 processed_args, processed_kwargs = self._normalize_params(
                     func, args, kwargs, normalize=normalize_args
                 )
 
-                # Determine which key to use for caching based on scope
-                if scope == 'function' or not entity:
-                    # Function scope - use function-specific key
-                    effective_key = func_key_name
-                elif scope == 'entity':
-                    # Entity scope - use entity-based key
-                    effective_key = f"entity:{entity}"
-                # Generate the appropriate key based on scope
-                effective_func_key = self._generate_key(effective_key, processed_args, processed_kwargs)
+                # Construct the appropriate cache key using the function object directly
+                effective_func_key = self.construct_key(
+                    func=func,
+                    cache_key=cache_key,
+                    entity=entity, 
+                    scope=scope,
+                    args=processed_args, 
+                    kwargs=processed_kwargs
+                )
                 # Try to get the cached result
                 try:
                     cached = self.backend.get(effective_func_key)
@@ -202,7 +199,13 @@ class EntityCache:
                     logger.error("Caching error: %s", e)
 
                 return result
+            # Store all key construction parameters on the wrapper
+            # This ensures consistency between decorator usage and direct key construction
             wrapper.cache_key = cache_key
+            wrapper.entity = entity
+            wrapper.scope = scope
+            wrapper.normalize_args = normalize_args
+            wrapper.id_field = id_field
             return wrapper
         return decorator
 
@@ -281,6 +284,46 @@ class EntityCache:
         else:
             return value
 
+    def construct_key(self, func, cache_key: Optional[str] = None, entity: Optional[str] = None, 
+                    scope: str = 'function', args: Tuple = (), kwargs: Dict = {}) -> str:
+        """
+        Construct a cache key based on function, entity, scope, and arguments.
+        
+        Priority for parameters (highest to lowest):
+        1. Function attributes from wrapper (func.cache_key, func.entity, func.scope)
+        2. Explicitly passed parameters (cache_key, entity, scope)
+        3. Defaults (function name with module, no entity, 'function' scope)
+        
+        Args:
+            func: The function object
+            cache_key: Optional custom cache key
+            entity: Optional entity type
+            scope: Scope of caching ('function' or 'entity')
+            args: Function positional arguments
+            kwargs: Function keyword arguments
+            
+        Returns:
+            A unique and consistent cache key string
+        """
+        # Check for wrapper attributes first with highest priority
+        effective_cache_key = getattr(func, 'cache_key', None) or cache_key
+        effective_entity = getattr(func, 'entity', None) or entity
+        effective_scope = getattr(func, 'scope', None) or scope
+        
+        # Determine the prefix based on scope and entity
+        if effective_cache_key:
+            # If cache_key is provided or set on wrapper, use it
+            prefix = effective_cache_key
+        elif effective_scope == 'entity' and effective_entity:
+            # If using entity scope, use entity type as prefix
+            prefix = f"entity:{effective_entity}"
+        else:
+            # Default to function name with module
+            prefix = f"{func.__module__}.{func.__name__}"
+        
+        # Generate the key with the determined prefix
+        return self._generate_key(prefix, args, kwargs)
+    
     def _generate_key(self, prefix: str, args: Tuple, kwargs: Dict) -> str:
         """
         Generate a unique cache key.
@@ -435,21 +478,27 @@ class EntityCache:
             logger.error("Error invalidating function: %s", e)
             return 0
 
-    def invalidate_key(self, func_name, *args, **kwargs):
+    def invalidate_key(self, func_name_or_obj, *args, **kwargs):
         """
         Invalidate a specific cache key.
 
         Args:
-            func_name: Fully qualified name of the function (module.function) or cache_key.
-                      For example: "myapp.utils.get_user" not just "get_user".
-                      You can use `f"{func.__module__}.{func.__name__}"` to get this.
+            func_name_or_obj: Either a fully qualified function name (str) or a function object.
+                      If string, it should be in format "myapp.utils.get_user" not just "get_user".
             *args, **kwargs: Arguments that were passed to the function
 
         Returns:
             Whether a key was invalidated
         """
         try:
-            key = self._generate_key(func_name, args, kwargs)
+            # Get the appropriate key to invalidate (reusing get_cache_key for consistency)
+            key = self.get_cache_key(func_name_or_obj, *args, **kwargs)
+            
+            # Get an appropriate name for logging
+            if callable(func_name_or_obj):
+                func_name = f"{func_name_or_obj.__module__}.{func_name_or_obj.__name__}"
+            else:
+                func_name = func_name_or_obj
 
             logger.debug("Invalidating specific cache key: %s %s ", f'{func_name}:({args}, {kwargs})', key)
 
@@ -506,17 +555,19 @@ class EntityCache:
         Returns:
             Number of keys invalidated
         """
+        # Get the appropriate function name based on cache_key attribute or module+name
         if getattr(func, 'cache_key', None):
             func_name = func.cache_key
         else:
             func_name = f"{func.__module__}.{func.__name__}"
+        
         return self.invalidate_function(func_name)
 
     def invalidate_func_call(self, func, *args, **kwargs):
         """
         Invalidate a specific cache key by passing the function object directly.
 
-        This is a convenience method that extracts the module and name automatically.
+        This is a convenience method that directly uses the function object.
 
         Args:
             func: The function object whose cache entry should be invalidated
@@ -525,5 +576,30 @@ class EntityCache:
         Returns:
             Whether a key was invalidated
         """
-        func_name = f"{func.__module__}.{func.__name__}"
-        return self.invalidate_key(func_name, *args, **kwargs)
+        # Use the function object directly with the new invalidate_key method
+        return self.invalidate_key(func, *args, **kwargs)
+        
+    def get_cache_key(self, func_or_name, *args, **kwargs):
+        """
+        Get the cache key for a function call without invalidating it.
+        
+        This is useful for testing and debugging to see what key will be used.
+        
+        Args:
+            func_or_name: Either a function object or a string with the fully qualified name.
+            *args, **kwargs: Arguments that were passed to the function
+            
+        Returns:
+            The cache key that would be used for this function and arguments
+        """
+        if callable(func_or_name):
+            # We have a function object - use construct_key for full consistency
+            # This will check for wrapper attributes automatically
+            return self.construct_key(
+                func=func_or_name, 
+                args=args, 
+                kwargs=kwargs
+            )
+        else:
+            # We have a function name string
+            return self._generate_key(func_or_name, args, kwargs)
