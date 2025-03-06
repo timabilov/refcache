@@ -1,6 +1,7 @@
 """Pytest configuration for cacheref tests."""
 
 import logging
+
 import pytest
 
 # Import from cacheref
@@ -22,7 +23,7 @@ logging.getLogger("cacheref").setLevel(logging.DEBUG)
 @pytest.fixture
 def memory_backend(request):
     """Return a fresh memory backend for each test.
-    
+
     Uses worker-specific namespace if tests are run in parallel.
     """
     worker_id = getattr(request.config, 'workerinput', {}).get('workerid', '')
@@ -32,7 +33,7 @@ def memory_backend(request):
 @pytest.fixture
 def memory_cache(memory_backend):
     """Return an EntityCache with memory backend.
-    
+
     Uses the memory_backend fixture for proper namespacing in parallel tests.
     """
     return EntityCache(backend=memory_backend, ttl=60, debug=True)
@@ -46,7 +47,7 @@ except ImportError:
 @pytest.fixture
 def redis_client(request):
     """Return a Redis client for testing if Redis is available.
-    
+
     The fixture automatically:
     1. Uses a dedicated DB for testing
     2. Flushes the DB before each test
@@ -59,14 +60,14 @@ def redis_client(request):
         # Use test DB 15
         client = redis.Redis(host='localhost', port=6379, db=15)
         client.ping()  # Check connection
-        
+
         # FLUSH THE ENTIRE TEST DB to ensure clean state
         # This is required since we're running tests with different key prefixes
         client.flushdb()
-        
+
         # Run the test
         yield client
-        
+
         # Clean up after the test
         client.flushdb()
     except redis.ConnectionError:
@@ -77,7 +78,7 @@ def redis_client(request):
 @pytest.fixture
 def redis_backend(redis_client, request):
     """Return a RedisBackend for testing if Redis is available.
-    
+
     Uses worker-specific namespace if tests are run in parallel.
     """
     worker_id = getattr(request.config, 'workerinput', {}).get('workerid', '')

@@ -166,19 +166,19 @@ def test_redis_backend_key_prefix(redis_client):
     # Create backend with key prefix
     prefix = "prefix:"
     backend = RedisBackend(redis_client, key_prefix=prefix)
-    
+
     # Check prefix is set correctly
     assert backend.key_prefix == prefix
-    
+
     # Set and get a value
     backend.set("key1", "value1")
     assert backend.get("key1") == b"value1"
-    
+
     # Verify key is actually stored with prefix in Redis
     assert redis_client.get("prefix:key1") == b"value1"
     # And cannot be accessed without prefix directly
     assert redis_client.get("key1") is None
-    
+
     # Test keys method strips prefix
     backend.set("key2", "value2")
     keys = backend.keys("key*")
@@ -186,12 +186,12 @@ def test_redis_backend_key_prefix(redis_client):
     # Keys should be returned without prefix
     assert "key1" in keys
     assert "key2" in keys
-    
+
     # Test delete with prefix
     backend.delete("key1")
     assert redis_client.get("prefix:key1") is None
     assert backend.get("key1") is None
-    
+
     # Test sets with prefix
     backend.sadd("set1", "a", "b", "c")
     # Check keys are stored with prefix
@@ -199,15 +199,15 @@ def test_redis_backend_key_prefix(redis_client):
     # But can be accessed without prefix through the backend
     members = backend.smembers("set1")
     assert len(members) == 3
-    
+
     # Test pipeline with prefix
     pipeline = backend.pipeline()
     pipeline.set("pipe1", "value1")
     pipeline.set("pipe2", "value2")
     pipeline.execute()
-    
+
     # Check keys are stored with prefix
-    assert redis_client.get("prefix:pipe1") == b"value1" 
+    assert redis_client.get("prefix:pipe1") == b"value1"
     assert redis_client.get("prefix:pipe2") == b"value2"
     # But can be accessed without prefix through the backend
     assert backend.get("pipe1") == b"value1"

@@ -3,7 +3,7 @@
 import fnmatch
 import threading
 import time
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set
 
 from .base import CacheBackend, CacheValue, logger
 
@@ -28,7 +28,7 @@ class MemoryBackend(CacheBackend):
     def __init__(self, key_prefix: Optional[str] = None):
         """
         Initialize an in-memory cache backend.
-        
+
         Args:
             key_prefix: Optional prefix to add to all keys (useful for namespacing)
         """
@@ -44,7 +44,7 @@ class MemoryBackend(CacheBackend):
         if not self.key_prefix:
             return key
         return f"{self.key_prefix}{key}"
-        
+
     def _strip_prefix(self, key: str) -> str:
         """Remove prefix from key if present."""
         if not self.key_prefix:
@@ -119,10 +119,10 @@ class MemoryBackend(CacheBackend):
     def keys(self, pattern: str) -> List[str]:
         """Find keys matching pattern using fnmatch."""
         logger.debug("Memory KEYS %s", pattern)
-        
+
         # Apply key prefix to the pattern
         prefixed_pattern = self._prefix_key(pattern)
-        
+
         with self.lock:
             # Check expiry for all keys first
             # Make a copy of keys since we might modify during iteration
@@ -178,7 +178,7 @@ class MemoryBackend(CacheBackend):
                 self.expires[prefixed_key] = time.time() + expiration_seconds
                 return True
         return False
-        
+
     def pipeline(self):
         """Get a pipeline for batched operations."""
         logger.debug("Creating Memory pipeline")
@@ -187,32 +187,32 @@ class MemoryBackend(CacheBackend):
 
 class MemoryPipeline:
     """Simple pipeline implementation for batched operations with the MemoryBackend."""
-    
+
     def __init__(self, backend: MemoryBackend):
         """
         Initialize with a reference to the backend.
-        
+
         Args:
             backend: The MemoryBackend instance
         """
         self.backend = backend
         self.commands = []
-        
+
     def __getattr__(self, name: str):
         """Proxy attribute access to the backend."""
         # Get the method from the backend
         if not hasattr(self.backend, name):
             raise AttributeError(f"'{type(self.backend).__name__}' object has no attribute '{name}'")
-            
+
         backend_method = getattr(self.backend, name)
-        
+
         # Create a method that stores commands
         def method(*args: Any, **kwargs: Any) -> 'MemoryPipeline':
             self.commands.append((backend_method, args, kwargs))
             return self
-            
+
         return method
-        
+
     def execute(self) -> List[Any]:
         """Execute all queued commands."""
         results = []
@@ -222,6 +222,6 @@ class MemoryPipeline:
                 # Call the actual backend method directly
                 # We're bypassing the public method that would acquire the lock again
                 results.append(method(*args, **kwargs))
-                
+
         self.commands = []  # Clear commands after execution
         return results

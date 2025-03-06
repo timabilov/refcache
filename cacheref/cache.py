@@ -33,6 +33,8 @@ class EntityCache:
     Works with any backend that implements the CacheBackend interface.
     """
 
+    _signature_cache = {}
+
     def __init__(
         self,
         backend: Optional[CacheBackend] = None,
@@ -65,7 +67,7 @@ class EntityCache:
         if backend is None:
             logger.info("No backend provided, using in-memory backend")
             backend = MemoryBackend(key_prefix="cache:")
-            
+
         self.backend = backend
         self.ttl = ttl
 
@@ -134,9 +136,9 @@ class EntityCache:
                 effective_func_key = self.construct_key(
                     func=func,
                     cache_key=cache_key,
-                    entity=entity, 
+                    entity=entity,
                     scope=scope,
-                    args=processed_args, 
+                    args=processed_args,
                     kwargs=processed_kwargs
                 )
                 # Try to get the cached result
@@ -217,13 +219,6 @@ class EntityCache:
     def _normalize_params(self, func, args, kwargs, normalize=False):
         """
         Normalize parameters to ensure consistent cache keys across services.
-
-        If normalize=True, it:
-        - Converts positional args to named kwargs when possible
-        - Sorts lists/sets in parameters
-        - Sorts dict keys
-
-        This helps unify cache entries across different services.
         """
         if not normalize:
             return args, kwargs
@@ -233,27 +228,44 @@ class EntityCache:
 
         # Convert positional args to kwargs where possible for consistency
         try:
-            sig = inspect.signature(func)
-            param_names = list(sig.parameters.keys())
+            func_key = f"{func.__module__}.{func.__qualname__}"
 
-            # Only convert args that have parameter names
+            # Check if we have this signature cached
+            if func_key in self._signature_cache:
+                parameters = self._signature_cache[func_key]
+            else:
+                # Inspect the signature and cache it
+                sig = inspect.signature(func)
+                parameters = list(sig.parameters.values())
+
+                # Skip 'self' or 'cls' in method calls
+                if parameters and parameters[0].name in ('self', 'cls'):
+                    parameters = parameters[1:]
+
+                # TODO Prevent the cache from growing too large?
+                # Cache the processed parameters
+                self._signature_cache[func_key] = parameters
+
+
+            # Convert positional args to their parameter names
             for i, arg in enumerate(args):
-                if i < len(param_names):
-                    param_name = param_names[i]
-                    # Skip 'self' or 'cls' in method calls
-                    if param_name not in ('self', 'cls'):
-                        processed_kwargs[param_name] = arg
+                if i < len(parameters):
+                    param = parameters[i]
+                    processed_kwargs[param.name] = arg
 
             # No positional args in the processed version (all converted to kwargs)
             processed_args = ()
         except Exception:
+            logger.warning("Error inspecting function %s.%s signature for normalization, fallback to original",
+                           func.__module__, func.__name__)
             # Fall back to original args if signature inspection fails
             processed_args = args
 
         # Normalize argument values to ensure cache key consistency
-        normalized_kwargs = {}
-        for key, value in processed_kwargs.items():
-            normalized_kwargs[key] = self._normalize_value(value)
+        normalized_kwargs = {
+            key: self._normalize_value(value)
+            for key, value in sorted(processed_kwargs.items())
+        }
 
         return processed_args, normalized_kwargs
 
@@ -284,16 +296,16 @@ class EntityCache:
         else:
             return value
 
-    def construct_key(self, func, cache_key: Optional[str] = None, entity: Optional[str] = None, 
-                    scope: str = 'function', args: Tuple = (), kwargs: Dict = {}) -> str:
+    def construct_key(self, func, cache_key: Optional[str] = None, entity: Optional[str] = None,
+                    scope: str = 'function', args: Tuple = (), kwargs: Dict = None) -> str:
         """
         Construct a cache key based on function, entity, scope, and arguments.
-        
+
         Priority for parameters (highest to lowest):
         1. Function attributes from wrapper (func.cache_key, func.entity, func.scope)
         2. Explicitly passed parameters (cache_key, entity, scope)
         3. Defaults (function name with module, no entity, 'function' scope)
-        
+
         Args:
             func: The function object
             cache_key: Optional custom cache key
@@ -301,15 +313,17 @@ class EntityCache:
             scope: Scope of caching ('function' or 'entity')
             args: Function positional arguments
             kwargs: Function keyword arguments
-            
+
         Returns:
             A unique and consistent cache key string
         """
         # Check for wrapper attributes first with highest priority
+        if kwargs is None:
+            kwargs = {}
         effective_cache_key = getattr(func, 'cache_key', None) or cache_key
         effective_entity = getattr(func, 'entity', None) or entity
         effective_scope = getattr(func, 'scope', None) or scope
-        
+
         # Determine the prefix based on scope and entity
         if effective_cache_key:
             # If cache_key is provided or set on wrapper, use it
@@ -320,19 +334,19 @@ class EntityCache:
         else:
             # Default to function name with module
             prefix = f"{func.__module__}.{func.__name__}"
-        
+
         # Generate the key with the determined prefix
         return self._generate_key(prefix, args, kwargs)
-    
+
     def _generate_key(self, prefix: str, args: Tuple, kwargs: Dict) -> str:
         """
         Generate a unique cache key.
-        
+
         Args:
             prefix: String to use as the key prefix (function name or entity type)
             args: Function positional arguments
             kwargs: Function keyword arguments
-            
+
         Returns:
             A unique cache key string with consistent format
         """
@@ -340,17 +354,17 @@ class EntityCache:
         args_str = str(args) if args else ""
         kwargs_str = str(sorted(kwargs.items())) if kwargs else ""
         params_str = f"{args_str}{kwargs_str}"
-        
+
         # Create a hash for the parameters
         if params_str:
             params_hash = hashlib.md5(params_str.encode()).hexdigest()
         else:
             params_hash = "noargs"
-        
+
         # Format: cache:prefix:params_hash
         # Consistent format makes debugging easier
         key = f"cache:{prefix}:{params_hash}"
-        
+
         return key
 
     def _extract_entity_ids(self, result, id_field='id'):
@@ -413,9 +427,9 @@ class EntityCache:
             # Delete all these specific cache keys and the entity index
             try:
                 pipeline = self._pipeline()
-                
+
                 if cache_keys:
-                    # This is not consistent, for each run not deletes all!
+                    # TODO This is not consistent, fix pipeline param pass issue
                     # pipeline.delete(*cache_keys)
                     for key in cache_keys:
                         pipeline.delete(key)
@@ -426,12 +440,13 @@ class EntityCache:
                 result = pipeline.execute()
                 logger.info("Invalidated %d cache entries for %s:%s", len(cache_keys), entity, entity_id)
                 logger.debug("Keys invalidated: %s result: %s", cache_keys, result)
-                for key in self.backend.keys(f"*"):
-                    try:
-                        print(key , '-> ',self.backend.smembers(key), '\n')
-                    except:
-                        print(key , '-> ', msgspec.msgpack.decode(self.backend.get(key)), '\n')
-                    print('-------------------')
+                # TODO better debug functions
+                # for key in self.backend.keys("*"):
+                #     try:
+                #         print(key , '-> ',self.backend.smembers(key), '\n')
+                #     except:
+                #         print(key , '-> ', msgspec.msgpack.decode(self.backend.get(key)), '\n')
+                #     print('-------------------')
                 return len(cache_keys)
             except Exception as e:
                 logger.error("Error in pipeline execution: %s", e)
@@ -493,7 +508,7 @@ class EntityCache:
         try:
             # Get the appropriate key to invalidate (reusing get_cache_key for consistency)
             key = self.get_cache_key(func_name_or_obj, *args, **kwargs)
-            
+
             # Get an appropriate name for logging
             if callable(func_name_or_obj):
                 func_name = f"{func_name_or_obj.__module__}.{func_name_or_obj.__name__}"
@@ -560,7 +575,7 @@ class EntityCache:
             func_name = func.cache_key
         else:
             func_name = f"{func.__module__}.{func.__name__}"
-        
+
         return self.invalidate_function(func_name)
 
     def invalidate_func_call(self, func, *args, **kwargs):
@@ -578,17 +593,17 @@ class EntityCache:
         """
         # Use the function object directly with the new invalidate_key method
         return self.invalidate_key(func, *args, **kwargs)
-        
+
     def get_cache_key(self, func_or_name, *args, **kwargs):
         """
         Get the cache key for a function call without invalidating it.
-        
+
         This is useful for testing and debugging to see what key will be used.
-        
+
         Args:
             func_or_name: Either a function object or a string with the fully qualified name.
             *args, **kwargs: Arguments that were passed to the function
-            
+
         Returns:
             The cache key that would be used for this function and arguments
         """
@@ -596,8 +611,8 @@ class EntityCache:
             # We have a function object - use construct_key for full consistency
             # This will check for wrapper attributes automatically
             return self.construct_key(
-                func=func_or_name, 
-                args=args, 
+                func=func_or_name,
+                args=args,
                 kwargs=kwargs
             )
         else:

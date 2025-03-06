@@ -1,10 +1,10 @@
 """Integration tests for Redis backend with EntityCache."""
 
-from time import sleep
+import msgspec.msgpack
 import pytest
 import redis
+
 from cacheref import EntityCache, RedisBackend
-import msgspec.msgpack
 
 
 @pytest.mark.redis
@@ -154,26 +154,8 @@ def test_redis_scope_function(redis_client, redis_backend):
     assert user1_isolated["id"] == 1
     assert call_count == 2  # Should increase because scope='function'
 
-    # # Check what keys exist in Redis before invalidation
-    # keys_before = redis_client.keys(f"{redis_backend.key_prefix}*")
-    
-    # # Manually delete the isolated function key to ensure it needs to be refetched
-    # func_key = f"{redis_backend.key_prefix}c:tests.test_redis_integration.get_user_isolated:c0a8a20f903a4915b94db8de3ea63195"
-    # redis_client.delete(func_key)
-    
-    # Invalidate the entity
-    for key in redis_backend.keys(f"*"):
-        try:
-            print(key , '-> ',redis_backend.smembers(key), '\n')
-        except:
-            print(key , '-> ', msgspec.msgpack.decode(redis_backend.get(key)), '\n')
-        print('-------------------')
-    print('PRINTED!!')
+
     cache1.invalidate_entity("user", 1)
-    # Manually delete the isolated function key since our function-specific keys
-    # might not be properly tracked in the entity index with the new prefix scheme
-    # redis_client.delete(f"{redis_backend.key_prefix}cache:tests.test_redis_integration.get_user_isolated:c0a8a20f903a4915b94db8de3ea63195")
-    # Both functions should now re-fetch
     user1_after_invalidate1 = get_user_shared(1)
     assert user1_after_invalidate1["id"] == 1
     assert call_count == 3
@@ -248,7 +230,7 @@ def test_redis_error_handling(redis_client, redis_backend, monkeypatch):
     """Test error handling with Redis backend."""
     # Use the fixture-provided backend with proper namespacing
     cache = EntityCache(backend=redis_backend, ttl=60)
-    
+
     call_count = 0
 
     # Use scope='function' to force traditional function-based keys for this test
@@ -298,63 +280,63 @@ def test_redis_error_handling(redis_client, redis_backend, monkeypatch):
 def test_redis_plain_caching_options(redis_backend):
     """Test different plain caching options with Redis backend."""
     cache = EntityCache(backend=redis_backend, ttl=60)
-    
+
     call_count = 0
-    
+
     # Plain cache with no entity
     @cache()
     def get_data(data_id):
         nonlocal call_count
         call_count += 1
         return {"id": data_id, "value": f"Data {data_id}"}
-    
+
     # With entity but scope="function"
     @cache(entity="product", scope="function")
     def get_product(product_id):
         nonlocal call_count
         call_count += 1
         return {"id": product_id, "name": f"Product {product_id}"}
-    
+
     # With entity tracking for comparison
     @cache(entity="user")
     def get_user(user_id):
         nonlocal call_count
         call_count += 1
         return {"id": user_id, "name": f"User {user_id}"}
-    
+
     # Call all functions
-    data = get_data(1)
-    product = get_product(1)
-    user = get_user(1)
+    get_data(1)
+    get_product(1)
+    get_user(1)
     assert call_count == 3
-    
+
     # Call again - all should use cache
     get_data(1)
     get_product(1)
     get_user(1)
     assert call_count == 3
-    
+
     # Invalidate entity - should only affect entity-tracked function
     cache.invalidate_entity("user", 1)
-    
+
     # Check which functions re-execute
     get_data(1)          # Plain cache - should use cache
     get_product(1)       # scope='function' - should use cache
     get_user(1)          # Entity-tracked - should re-execute
     assert call_count == 4
-    
+
     # Invalidate all
     cache.invalidate_all()
-    
+
     # All should re-execute
     get_data(1)
     get_product(1)
     get_user(1)
     assert call_count == 7
-    
+
     # Function-specific invalidation
     cache.invalidate_func(get_data)
-    
+
     # Only get_data should re-execute
     get_data(1)
     assert call_count == 8
@@ -448,47 +430,47 @@ def test_redis_backend_key_prefix_integration(redis_client):
     # Create Redis backend with custom key prefix (different from the fixture)
     prefix = "backend_prefix:"
     backend = RedisBackend(redis_client, key_prefix=prefix)
-    
+
     # Create EntityCache without entity-level prefix (to use backend's prefix)
     cache = EntityCache(backend=backend, ttl=60)
-    
+
     # Verify that prefix is handled by backend
     assert backend.key_prefix == prefix
-    
+
     call_count = 0
-    
+
     @cache(entity="user", scope="function")  # Use scope="function" for consistent test naming
     def get_user(user_id):
         nonlocal call_count
         call_count += 1
         return {"id": user_id, "name": f"User {user_id}"}
-    
+
     # First call should cache result
     user = get_user(42)
     assert user["id"] == 42
     assert call_count == 1
-    
+
     # Check that Redis keys have the backend prefix
     keys = redis_client.keys(f"{prefix}*")
     assert len(keys) > 0
-    
+
     # Second call should use cache
     user_again = get_user(42)
     assert user_again["id"] == 42
     assert call_count == 1
-    
+
     # Test invalidation with backend prefixing
     cache.invalidate_entity("user", 42)
-    
+
     # Keys should be gone from Redis
     entity_keys = redis_client.keys(f"{prefix}e:user:42")
     assert len(entity_keys) == 0
-    
+
     # Function should be called again
     user_after_invalidate = get_user(42)
     assert user_after_invalidate["id"] == 42
     assert call_count == 2
-    
+
     # Clean up after test
     for key in redis_client.keys(f"{prefix}*"):
         redis_client.delete(key)

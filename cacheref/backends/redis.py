@@ -30,11 +30,11 @@ class RedisBackend(CacheBackend):
         """
         self.client = client
         self.key_prefix = key_prefix or ""
-        
+
         # Cache client capabilities for better performance
         self._has_pipeline = hasattr(self.client, 'pipeline')
         self._has_multi = hasattr(self.client, 'multi')
-        
+
         logger.debug("Initialized RedisBackend with %s", client)
 
     def _prefix_key(self, key: str) -> str:
@@ -65,9 +65,9 @@ class RedisBackend(CacheBackend):
         """Delete one or more keys."""
         if not keys:
             return 0
-            
+
         logger.debug("Redis DELETE %s", keys)
-            
+
         # Apply key prefix to all keys
         prefixed_keys = [self._prefix_key(key) for key in keys]
         return self.client.delete(*prefixed_keys)
@@ -75,23 +75,23 @@ class RedisBackend(CacheBackend):
     def keys(self, pattern: str) -> List[str]:
         """Find keys matching pattern."""
         logger.debug("Redis KEYS %s", pattern)
-            
+
         # Apply key prefix to pattern
         prefixed_pattern = self._prefix_key(pattern)
-        
+
         # Get keys and strip prefix if needed
         keys = self.client.keys(prefixed_pattern)
-        
+
         # Remove prefix if it was added
         if self.key_prefix and keys:
             # Convert bytes to strings if needed
             if keys and isinstance(keys[0], bytes):
                 keys = [k.decode('utf-8') for k in keys]
-                
+
             # Strip prefix
             prefix_len = len(self.key_prefix)
             keys = [k[prefix_len:] if k.startswith(self.key_prefix) else k for k in keys]
-            
+
         return keys
 
     def sadd(self, key: str, *values: str) -> int:
@@ -102,11 +102,11 @@ class RedisBackend(CacheBackend):
     def smembers(self, key: str) -> Set[str]:
         """Get all members of a set."""
         logger.debug("Redis SMEMBERS %s", key)
-        
+
         # Get members with prefixed key
         members = self.client.smembers(self._prefix_key(key))
-        
-        # If prefix was applied to key, and members might also contain 
+
+        # If prefix was applied to key, and members might also contain
         # prefixed values (like cache keys that also need prefix handling),
         # we would handle that here. For now, return as-is since members
         # are typically not prefixed.
@@ -142,24 +142,24 @@ class RedisBackend(CacheBackend):
 
 class RedisPrefixPipeline:
     """Wrapper for Redis pipeline that applies key prefix automatically."""
-    
+
     def __init__(self, pipeline: RedisPipeline, key_prefix: str = ""):
         """
         Initialize a prefix-aware Redis pipeline.
-        
+
         Args:
             pipeline: Redis pipeline or transaction object
             key_prefix: Prefix to add to all keys
         """
         self.pipeline = pipeline
         self.key_prefix = key_prefix or ""
-        
+
     def _prefix_key(self, key: str) -> str:
         """Add prefix to key if configured."""
         if not self.key_prefix:
             return key
         return f"{self.key_prefix}{key}"
-        
+
     def __getattr__(self, name: str):
         """
         Proxy attribute access to the underlying pipeline.
@@ -167,7 +167,7 @@ class RedisPrefixPipeline:
         """
         # Get the original method
         orig_method = getattr(self.pipeline, name)
-        
+
         # For methods that take a key as first arg, apply the prefix
         def wrapped_method(*args, **kwargs):
             if args and isinstance(args[0], str):
@@ -176,9 +176,9 @@ class RedisPrefixPipeline:
                 args[0] = self._prefix_key(args[0])
                 args = tuple(args)
             return orig_method(*args, **kwargs)
-            
+
         return wrapped_method
-        
+
     def execute(self):
         """Execute the pipeline commands."""
         return self.pipeline.execute()
@@ -186,11 +186,11 @@ class RedisPrefixPipeline:
 
 class FakePipeline:
     """Fallback pipeline implementation when native pipeline is not available."""
-    
+
     def __init__(self, redis: RedisClient, key_prefix: str = ""):
         """
         Initialize a fake pipeline that simulates Redis pipelining.
-        
+
         Args:
             redis: Redis client
             key_prefix: Prefix to add to all keys
@@ -198,7 +198,7 @@ class FakePipeline:
         self.redis = redis
         self.commands = []
         self.key_prefix = key_prefix or ""
-        
+
     def _prefix_key(self, key: str) -> str:
         """Add prefix to key if configured."""
         if not self.key_prefix:
@@ -216,7 +216,7 @@ class FakePipeline:
                 args = list(args)
                 args[0] = self._prefix_key(args[0])
                 args = tuple(args)
-                
+
             self.commands.append((name, args, kwargs))
             return self
         return method

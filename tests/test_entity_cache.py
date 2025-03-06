@@ -28,31 +28,31 @@ def test_get_cache_key(memory_cache):
         nonlocal call_count
         call_count += 1
         return x + y + z
-    
+
     # Get key by function object
     key1 = memory_cache.get_cache_key(calculate_value, 1, 2)
-    
+
     # Get key by function name
     module_name = calculate_value.__module__
     func_name = f"{module_name}.{calculate_value.__name__}"
     key2 = memory_cache.get_cache_key(func_name, 1, 2)
-    
+
     # Both should be the same
     assert key1 == key2
-    
+
     # The key should be properly formatted
     assert key1.startswith(f"cache:{module_name}.calculate_value:")
-    
+
     # Now use the key to make sure it actually works
-    
+
     # Call the function to add it to cache
     result = calculate_value(1, 2)
     assert result == 3
     assert call_count == 1
-    
+
     # Delete using our retrieved key
     memory_cache.backend.delete(key1)
-    
+
     # Call again - should need to recalculate
     result2 = calculate_value(1, 2)
     assert result2 == 3
@@ -321,9 +321,9 @@ def test_mixed_entity_and_plain_caching(memory_cache):
         return {"user_id": user_id, "theme": "dark", "notifications": True}
 
     # Call all functions
-    user = get_user(1)
-    stats = get_user_stats(1)
-    prefs = get_user_preferences(1)
+    get_user(1)
+    get_user_stats(1)
+    get_user_preferences(1)
     assert call_count == 3
 
     # Call again - all should be cached
@@ -334,26 +334,26 @@ def test_mixed_entity_and_plain_caching(memory_cache):
 
     # Invalidate entity - should only affect entity-tracked function
     memory_cache.invalidate_entity("user", 1)
-    
+
     # Entity-tracked function should re-execute
     get_user(1)
     assert call_count == 4
-    
+
     # Plain cache functions should still use cache
     get_user_stats(1)
     assert call_count == 4
-    
+
     # scope "function" should still use cache despite having entity
     get_user_preferences(1)
     assert call_count == 4
 
     # Invalidate a specific function - should only affect that function
     memory_cache.invalidate_func(get_user_stats)
-    
+
     # This function should re-execute
     get_user_stats(1)
     assert call_count == 5
-    
+
     # Other functions should still use cache
     get_user(1)
     get_user_preferences(1)
@@ -361,7 +361,7 @@ def test_mixed_entity_and_plain_caching(memory_cache):
 
     # Invalidate all - should affect all functions
     memory_cache.invalidate_all()
-    
+
     # All functions should re-execute
     get_user(1)
     get_user_stats(1)
@@ -391,14 +391,14 @@ def test_plain_cache_custom_key_name(memory_cache):
 
     # Invalidate using the custom cache key
     memory_cache.invalidate_function("custom_cache_key")
-    
+
     # Function should re-execute
     function_with_long_name(1)
     assert call_count == 2
 
     # The convenience method should also work with the function object
     memory_cache.invalidate_func(function_with_long_name)
-    
+
     # Function should re-execute
     function_with_long_name(1)
     assert call_count == 3
