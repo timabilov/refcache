@@ -19,12 +19,12 @@ except ImportError:
 @pytest.fixture
 def memory_backend():
     """Return a fresh memory backend for each test."""
-    return MemoryBackend()
+    return MemoryBackend(key_prefix="test:")
 
 @pytest.fixture
 def memory_cache():
     """Return an EntityCache with memory backend."""
-    return EntityCache(backend=MemoryBackend(), prefix="test:", ttl=60, debug=True)
+    return EntityCache(backend=MemoryBackend(key_prefix="test:"), ttl=60, debug=True)
 
 try:
     import redis
@@ -52,12 +52,12 @@ def redis_client():
 @pytest.fixture
 def redis_backend(redis_client):
     """Return a RedisBackend for testing if Redis is available."""
-    return RedisBackend(redis_client)
+    return RedisBackend(redis_client, key_prefix="test:")
 
 @pytest.fixture
 def redis_cache(redis_backend):
     """Return an EntityCache with Redis backend."""
-    return EntityCache(backend=redis_backend, prefix="test:", ttl=60, debug=True)
+    return EntityCache(backend=redis_backend, ttl=60, debug=True)
 
 # Add a marker for Redis tests
 def pytest_configure(config):

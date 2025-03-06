@@ -36,7 +36,6 @@ class EntityCache:
     def __init__(
         self,
         backend: Optional[CacheBackend] = None,
-        prefix: str = "cache:",
         ttl: int = 3600,
         serializer: Optional[Callable] = None,
         deserializer: Optional[Callable] = None,
@@ -46,17 +45,12 @@ class EntityCache:
         Initialize the cache decorator.
 
         Args:
-            backend: CacheBackend instance (if not provided, will use in-memory backend)
-            prefix: Prefix for all cache keys
+            backend: CacheBackend instance (if not provided, will use in-memory backend with default prefix)
             ttl: Default Time-to-live in seconds (default: 1 hour)
             serializer: Function to serialize data (default: msgspec.msgpack.encode if available, or json.dumps)
             deserializer: Function to deserialize data (default: msgspec.msgpack.decode if available, or json.loads)
             debug: Enable debug logging
         """
-        if backend is None:
-            logger.info("No backend provided, using in-memory backend")
-            backend = MemoryBackend()
-
         # Set up logger
         if debug:
             logger.setLevel(logging.DEBUG)
@@ -67,8 +61,12 @@ class EntityCache:
                 handler.setFormatter(formatter)
                 logger.addHandler(handler)
 
+        # If backend is not provided, create memory backend with default prefix
+        if backend is None:
+            logger.info("No backend provided, using in-memory backend")
+            backend = MemoryBackend(key_prefix="cache:")
+            
         self.backend = backend
-        self.prefix = prefix
         self.ttl = ttl
 
         # Set serializer/deserializer with msgspec.msgpack as default if available
@@ -97,7 +95,7 @@ class EntityCache:
     def __call__(
         self,
         entity_type: Optional[str] = None,
-        key_prefix: Optional[str] = None,
+        cache_key: Optional[str] = None,
         normalize_args: bool = False,
         ttl: Optional[int] = None,
         id_field: str = 'id',
@@ -108,8 +106,8 @@ class EntityCache:
         Args:
             entity_type: The primary entity type this function deals with
                         (e.g., 'user', 'product')
-            key_prefix: Optional custom prefix for the cache key to unify caching
-                       across services or functions
+            cache_key: Optional custom key name for the cache to unify caching
+                      across services or functions
             normalize_args: Whether to normalize argument values for consistent
                            cache keys across services
             ttl: Optional override for TTL (defaults to instance TTL)
@@ -123,8 +121,8 @@ class EntityCache:
         def decorator(func):
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
-                # Use custom key prefix if provided, otherwise use function name
-                func_key_name = key_prefix or func.__module__ + "." + func.__name__
+                # Use custom cache key if provided, otherwise use function name
+                func_key_name = cache_key or func.__module__ + "." + func.__name__
 
                 # Get normalized parameters for the key
                 processed_args, processed_kwargs = self._normalize_params(
@@ -177,7 +175,7 @@ class EntityCache:
                                 logger.debug("Found entity IDs: %s", entity_ids)
                                 for entity_id in entity_ids:
                                     # Create a direct index from entity to cache keys
-                                    entity_key = f"{self.prefix}e:{entity_type}:{entity_id}"
+                                    entity_key = f"e:{entity_type}:{entity_id}"
                                     pipeline.sadd(entity_key, func_key)
 
                                     # Set TTL on the entity index slightly longer than the cache TTL
@@ -275,7 +273,7 @@ class EntityCache:
     def _generate_key(self, func_name: str, args: Tuple, kwargs: Dict) -> str:
         """Generate a unique cache key."""
         # Start with function name
-        key = f"{self.prefix}c:{func_name}:"
+        key = f"c:{func_name}:"
 
         # Add a hash of the arguments
         args_str = str(args) if args else ""
@@ -333,7 +331,7 @@ class EntityCache:
             Number of keys invalidated
         """
         # Get the key for this entity
-        entity_key = f"{self.prefix}e:{entity_type}:{entity_id}"
+        entity_key = f"e:{entity_type}:{entity_id}"
         logger.debug("Invalidating entity %s:%s", entity_type, entity_id)
 
         try:
@@ -374,7 +372,7 @@ class EntityCache:
         Invalidate all cache entries for a specific function.
 
         Args:
-            func_name: Fully qualified name of the function (module.function) or key_prefix.
+            func_name: Fully qualified name of the function (module.function) or cache_key.
                       For example: "myapp.utils.get_user" not just "get_user".
                       You can use `f"{func.__module__}.{func.__name__}"` to get this.
 
@@ -384,7 +382,7 @@ class EntityCache:
         logger.debug("Invalidating all cache entries for function: %s", func_name)
         try:
             # Find all cache keys for this function name pattern
-            pattern = f"{self.prefix}c:{func_name}:*"
+            pattern = f"c:{func_name}:*"
             func_keys = self.backend.keys(pattern)
 
             if not func_keys:
@@ -411,7 +409,7 @@ class EntityCache:
         Invalidate a specific cache key.
 
         Args:
-            func_name: Fully qualified name of the function (module.function) or key_prefix.
+            func_name: Fully qualified name of the function (module.function) or cache_key.
                       For example: "myapp.utils.get_user" not just "get_user".
                       You can use `f"{func.__module__}.{func.__name__}"` to get this.
             *args, **kwargs: Arguments that were passed to the function
@@ -444,9 +442,10 @@ class EntityCache:
         Returns:
             Number of keys invalidated
         """
-        logger.debug("Invalidating all cache entries with prefix: %s", self.prefix)
+        logger.debug("Invalidating all cached entries")
         try:
-            keys = self.backend.keys(f"{self.prefix}*")
+            # Get all cache entries (c: for function caches, e: for entity indices)
+            keys = self.backend.keys("*")
 
             if not keys:
                 logger.debug("No cache keys found to invalidate")

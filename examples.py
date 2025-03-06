@@ -1,15 +1,16 @@
 
-# Example 1: Basic usage with Redis
+# Example 1: Basic usage with Redis using backend-level namespacing
 from redis import Redis
 
 from cacheref import EntityCache, RedisBackend
 
-# Initialize Redis client and backend
+# Initialize Redis client and backend with namespace
 redis_client = Redis(host='localhost', port=6379, db=0)
-redis_backend = RedisBackend(redis_client)
+# Namespace is configured at the backend level
+redis_backend = RedisBackend(redis_client, key_prefix="app:")
 
-# Create cache with Redis backend
-cache = EntityCache(backend=redis_backend, prefix="app:", ttl=3600)
+# Create cache with the Redis backend
+cache = EntityCache(backend=redis_backend, ttl=3600)
 
 @cache(entity_type="user")
 def get_user(user_id):
@@ -25,10 +26,11 @@ from cacheref import EntityCache, RedisBackend
 
 # Initialize ValKey client and backend
 valkey_client = Client(host='localhost', port=6379)
-valkey_backend = RedisBackend(valkey_client)
+# Create backend with namespace
+valkey_backend = RedisBackend(valkey_client, key_prefix="app:")
 
-# Create cache with ValKey backend
-cache = EntityCache(backend=valkey_backend, prefix="app:", ttl=3600)
+# Create cache with the ValKey backend
+cache = EntityCache(backend=valkey_backend, ttl=3600)
 
 @cache(entity_type="product")
 def get_product(product_id):
@@ -41,15 +43,17 @@ def get_product(product_id):
 # from common.cache import cache  # Shared cache instance
 # (Imaginary shared import - just for example purposes)
 
-# Simulating a shared cache instance
+# Simulating a shared cache instance with namespace isolation
 from cacheref import EntityCache, RedisBackend
 
 redis_client = Redis(host='localhost', port=6379, db=0)
-cache = EntityCache(backend=RedisBackend(redis_client))
+# Create isolated namespace for services
+redis_backend = RedisBackend(redis_client, key_prefix="services:")
+cache = EntityCache(backend=redis_backend)
 
 @cache(
     entity_type="user",
-    key_prefix="user.get_by_id",  # Common key prefix
+    cache_key="user.get_by_id",  # Common cache key
     normalize_args=True
 )
 def get_user_details(user_id):
@@ -61,7 +65,7 @@ def get_user_details(user_id):
 
 @cache(
     entity_type="user",
-    key_prefix="user.get_by_id",  # Same key prefix
+    cache_key="user.get_by_id",  # Same cache key
     normalize_args=True
 )
 def fetch_user(id):  # Different parameter name
@@ -189,9 +193,10 @@ def get_document(doc_id):
 from cacheref import EntityCache, MemoryBackend
 
 # Create cache with default serializers (uses msgspec if available)
+# Note: We use the backend's key_prefix parameter for namespacing
+memory_backend = MemoryBackend(key_prefix="default:")
 cache = EntityCache(
-    backend=MemoryBackend(),
-    prefix="default:",
+    backend=memory_backend,
     ttl=3600
 )
 
@@ -224,10 +229,10 @@ def pickle_deserializer(data):
 
 # Create cache with custom serializers
 redis_client = Redis(host='localhost', port=6379, db=0)
-redis_backend = RedisBackend(redis_client)
+# Use the backend's key_prefix parameter for namespacing
+redis_backend = RedisBackend(redis_client, key_prefix="pickle:")
 pickle_cache = EntityCache(
     backend=redis_backend,
-    prefix="pickle:",
     serializer=pickle_serializer,
     deserializer=pickle_deserializer
 )
@@ -270,18 +275,19 @@ def performance_benchmark():
     }
 
     # Create caches with different serializers
+    # Create backends with appropriate key prefixes
+    json_backend = MemoryBackend(key_prefix="json:")
     json_cache = EntityCache(
-        backend=backend,
-        prefix="json:",
+        backend=json_backend,
         serializer=json.dumps,
         deserializer=json.loads
     )
 
     # Skip msgspec testing if not available
     if HAS_MSGSPEC:
+        msgpack_backend = MemoryBackend(key_prefix="msgpack:")
         msgpack_cache = EntityCache(
-            backend=backend,
-            prefix="msgpack:",
+            backend=msgpack_backend,
             serializer=msgspec.msgpack.encode,
             deserializer=msgspec.msgpack.decode
         )
@@ -346,10 +352,9 @@ logger = logging.getLogger("cacheref")
 logger.setLevel(logging.DEBUG)
 
 # Create cache with in-memory backend
-memory_backend = MemoryBackend()
+memory_backend = MemoryBackend(key_prefix="memory:")
 memory_cache = EntityCache(
     backend=memory_backend,
-    prefix="memory:",
     debug=True  # Enable debug logging
 )
 

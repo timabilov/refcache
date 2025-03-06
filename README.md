@@ -36,14 +36,14 @@ pip install cacheref[all]
 from redis import Redis
 from cacheref import EntityCache, RedisBackend
 
-# Initialize with Redis backend
+# Initialize with Redis backend and namespacing
 redis_client = Redis(host='localhost', port=6379)
-backend = RedisBackend(redis_client)
-cache = EntityCache(backend=backend, prefix="app:", ttl=3600)
+backend = RedisBackend(redis_client, key_prefix="app:")
+cache = EntityCache(backend=backend, ttl=3600)
 
 # Or use in-memory backend for testing (default if no backend is provided)
 from cacheref import MemoryBackend
-test_cache = EntityCache(backend=MemoryBackend(), prefix="test:")
+test_cache = EntityCache(backend=MemoryBackend(key_prefix="test:"))
 memory_cache = EntityCache()  # Uses in-memory backend by default
 ```
 
@@ -98,12 +98,12 @@ This means you don't need to remember all the different ways an entity might be 
 
 ```python
 # In service A
-@cache(entity_type="user", key_prefix="user.get_by_id", normalize_args=True)
+@cache(entity_type="user", cache_key="user.get_by_id", normalize_args=True)
 def get_user(user_id):
     return {"id": user_id, "name": "User from Service A"}
 
 # In service B
-@cache(entity_type="user", key_prefix="user.get_by_id", normalize_args=True)
+@cache(entity_type="user", cache_key="user.get_by_id", normalize_args=True)
 def fetch_user(id):  # Different function and parameter name
     return {"id": id, "name": "User from Service B"}
 ```
@@ -169,7 +169,6 @@ Main class for creating cache decorators.
 ```python
 cache = EntityCache(
     backend=None,  # CacheBackend instance (optional, will use in-memory if None)
-    prefix="cache:",  # Key prefix (optional)
     ttl=3600,  # Default TTL in seconds (optional)
     serializer=json.dumps,  # Custom serializer function (optional)
     deserializer=json.loads,  # Custom deserializer function (optional)
@@ -184,7 +183,7 @@ Decorator for caching function results.
 ```python
 @cache(
     entity_type="user",  # Type of entity returned (optional)
-    key_prefix=None,  # Custom key prefix (optional)
+    cache_key=None,  # Custom cache key for function (optional)
     normalize_args=False,  # Whether to normalize arguments (optional)
     ttl=None,  # Override default TTL (optional)
     id_field="id"  # Field name containing entity IDs (optional)
@@ -219,19 +218,33 @@ Redis backend requires the redis package to be installed (`pip install cacheref[
 from redis import Redis
 from cacheref import EntityCache, RedisBackend
 
+# Create a Redis backend with a namespace
 redis_client = Redis(host='localhost', port=6379)
-backend = RedisBackend(redis_client)
+backend = RedisBackend(redis_client, key_prefix="app:")
 cache = EntityCache(backend=backend)
+
+# Works with any Redis-compatible client
+from valkey import Client
+valkey_client = Client(host='localhost', port=6379)
+valkey_backend = RedisBackend(valkey_client, key_prefix="app:")
+cache = EntityCache(backend=valkey_backend)
 ```
 
 The RedisBackend works with any Redis-compatible client (redis-py, valkey, etc) that implements the basic Redis commands. It doesn't directly import Redis, so you can provide any client that follows the Redis interface.
+
+The `key_prefix` parameter allows for more efficient namespacing directly at the backend level, which can improve performance when working with many keys.
 
 #### 2. In-Memory Backend (great for testing or small applications)
 
 ```python
 from cacheref import EntityCache, MemoryBackend
 
-memory_backend = MemoryBackend()
+# With namespace
+memory_backend = MemoryBackend(key_prefix="app:")
+cache = EntityCache(backend=memory_backend)
+
+# Or with default namespace
+memory_backend = MemoryBackend(key_prefix="cache:")
 cache = EntityCache(backend=memory_backend)
 ```
 
@@ -295,6 +308,37 @@ Log levels:
 - **INFO**: General cache operations (invalidations, initialization)
 - **WARNING**: Non-critical issues (serialization failures, etc.)
 - **ERROR**: Critical failures (backend unavailable, etc.)
+
+## Performance Optimizations
+
+CacheRef includes several performance optimizations:
+
+### 1. Backend Namespacing
+
+All backends support namespacing through the `key_prefix` parameter:
+
+```python
+# Redis backend with namespace
+redis_backend = RedisBackend(redis_client, key_prefix="app:")
+
+# Memory backend with namespace
+memory_backend = MemoryBackend(key_prefix="testing:")  
+```
+
+Benefits of backend namespacing:
+- Isolated key spaces for different applications
+- Efficient batch operations
+- Transparent key management
+- Consistent interface across backends
+
+Both Redis and Memory backends automatically handle prefixing and stripping of prefixes, making namespacing fully transparent to application code.
+
+### 2. Additional Optimizations
+
+- **Efficient Pipeline Usage**: Redis operations are automatically batched through pipelines
+- **Lazy Logging**: Debug logging only occurs when debug mode is enabled
+- **Automatic Type Conversion**: Redis backends handle byte/string conversions automatically
+- **msgspec Integration**: Uses fast msgspec.msgpack serialization when available
 
 ## License
 

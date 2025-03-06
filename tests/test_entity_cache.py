@@ -14,7 +14,6 @@ def test_entity_cache_init():
     cache = EntityCache()
     assert isinstance(cache, EntityCache)
     assert isinstance(cache.backend, MemoryBackend)
-    assert cache.prefix == "cache:"
     assert cache.ttl == 3600
     assert cache.serializer == msgpack.encode
     assert cache.deserializer == msgpack.decode
@@ -32,7 +31,6 @@ def test_entity_cache_custom_init():
 
     cache = EntityCache(
         backend=backend,
-        prefix="test:",
         ttl=60,
         serializer=custom_serializer,
         deserializer=custom_deserializer,
@@ -40,7 +38,6 @@ def test_entity_cache_custom_init():
     )
 
     assert cache.backend == backend
-    assert cache.prefix == "test:"
     assert cache.ttl == 60
     assert cache.serializer == custom_serializer
     assert cache.deserializer == custom_deserializer

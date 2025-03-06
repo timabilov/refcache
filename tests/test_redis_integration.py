@@ -67,13 +67,11 @@ def test_redis_cross_process_caching(redis_client):
     # Create two separate cache instances that share the same Redis
     cache1 = EntityCache(
         backend=RedisBackend(redis_client),
-        prefix="test:",
         ttl=60
     )
 
     cache2 = EntityCache(
         backend=RedisBackend(redis_client),
-        prefix="test:",
         ttl=60
     )
 
@@ -123,7 +121,7 @@ def test_redis_msgspec_serialization(redis_client):
 
     # Create a cache with default settings (should use msgspec)
     backend = RedisBackend(redis_client)
-    cache = EntityCache(backend=backend, prefix="test:", ttl=60)
+    cache = EntityCache(backend=backend, ttl=60)
 
     # Verify msgspec is being used
     assert cache.serializer == msgspec.msgpack.encode
@@ -179,7 +177,7 @@ def test_redis_msgspec_serialization(redis_client):
 def test_redis_error_handling(redis_client, monkeypatch):
     """Test error handling with Redis backend."""
     backend = RedisBackend(redis_client)
-    cache = EntityCache(backend=backend, prefix="test:", ttl=60)
+    cache = EntityCache(backend=backend, ttl=60)
 
     call_count = 0
 
@@ -224,7 +222,7 @@ def test_redis_error_handling(redis_client, monkeypatch):
 def test_redis_normalize_args(redis_client):
     """Test normalize_args feature with Redis backend."""
     backend = RedisBackend(redis_client)
-    cache = EntityCache(backend=backend, prefix="test:", ttl=60)
+    cache = EntityCache(backend=backend, ttl=60)
 
     call_count = 0
 
@@ -298,3 +296,52 @@ def test_redis_normalize_args(redis_client):
     # Call with set (converted to sorted list internally)
     _ = search_by_ids({3, 1, 2})  # Result not used here, just testing caching behavior
     assert call_count == 1  # Should use cache
+
+
+@pytest.mark.redis
+def test_redis_backend_key_prefix_integration(redis_client):
+    """Test the integration of RedisBackend key_prefix with EntityCache."""
+    # Create Redis backend with key prefix
+    prefix = "backend_prefix:"
+    backend = RedisBackend(redis_client, key_prefix=prefix)
+    
+    # Create EntityCache without entity-level prefix (to use backend's prefix)
+    cache = EntityCache(backend=backend, ttl=60)
+    
+    # Verify that prefix is handled by backend
+    assert cache.prefix == ""
+    assert backend.key_prefix == prefix
+    
+    call_count = 0
+    
+    @cache(entity_type="user")
+    def get_user(user_id):
+        nonlocal call_count
+        call_count += 1
+        return {"id": user_id, "name": f"User {user_id}"}
+    
+    # First call should cache result
+    user = get_user(42)
+    assert user["id"] == 42
+    assert call_count == 1
+    
+    # Check that Redis keys have the backend prefix
+    keys = redis_client.keys(f"{prefix}*")
+    assert len(keys) > 0
+    
+    # Second call should use cache
+    user_again = get_user(42)
+    assert user_again["id"] == 42
+    assert call_count == 1
+    
+    # Test invalidation with backend prefixing
+    cache.invalidate_entity("user", 42)
+    
+    # Keys should be gone from Redis
+    entity_keys = redis_client.keys(f"{prefix}e:user:42")
+    assert len(entity_keys) == 0
+    
+    # Function should be called again
+    user_after_invalidate = get_user(42)
+    assert user_after_invalidate["id"] == 42
+    assert call_count == 2
