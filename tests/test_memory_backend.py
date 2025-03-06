@@ -35,17 +35,17 @@ def test_memory_backend_expiry():
     backend = MemoryBackend()
 
     # Set with expiration
-    backend.set("key1", "value1", expire=1)
+    backend.set("key1", "value1", expire=0.2)
     assert backend.get("key1") == "value1"
 
     # Wait for expiration
-    time.sleep(1.1)
+    time.sleep(0.3)
     assert backend.get("key1") is None
 
     # Test setex directly
-    backend.setex("key2", 1, "value2")
+    backend.setex("key2", 0.3, "value2")
     assert backend.get("key2") == "value2"
-    time.sleep(1.1)
+    time.sleep(0.4)
     assert backend.get("key2") is None
 
 
@@ -92,9 +92,9 @@ def test_memory_backend_keys():
     assert "prefix:key1" in keys
 
     # Match with expiry
-    backend.set("expires:key", "value", expire=1)
+    backend.set("expires:key", "value", expire=0.2)
     assert "expires:key" in backend.keys("expires:*")
-    time.sleep(1.1)
+    time.sleep(0.3)
     assert "expires:key" not in backend.keys("expires:*")
 
 
@@ -122,9 +122,9 @@ def test_memory_backend_set_operations():
 
     # Test set expiry
     backend.sadd("set2", "value1")
-    backend.expire("set2", 1)
+    backend.expire("set2", 0.2)
     assert len(backend.smembers("set2")) == 1
-    time.sleep(1.1)
+    time.sleep(0.3)
     assert len(backend.smembers("set2")) == 0
 
 
@@ -137,16 +137,16 @@ def test_memory_backend_expire():
     backend.sadd("set1", "value1")
 
     # Set expiry
-    result = backend.expire("key1", 1)
+    result = backend.expire("key1", 0.2)
     assert result is True
-    result = backend.expire("set1", 1)
+    result = backend.expire("set1", 0.2)
     assert result is True
-    result = backend.expire("nonexistent", 1)
+    result = backend.expire("nonexistent", 0.2)
     assert result is False
 
     # Check expiry works
     assert backend.get("key1") == "value1"
     assert len(backend.smembers("set1")) == 1
-    time.sleep(1.1)
+    time.sleep(0.3)
     assert backend.get("key1") is None
     assert len(backend.smembers("set1")) == 0

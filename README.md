@@ -51,6 +51,8 @@ memory_cache = EntityCache()  # Uses in-memory backend by default
 
 ### Basic Usage
 
+#### With Entity Tracking
+
 ```python
 @cache(entity_type="user")
 def get_user(user_id):
@@ -65,6 +67,28 @@ def update_user(user_id, data):
     # Update in database...
     # Then invalidate all caches containing this user
     cache.invalidate_entity("user", user_id)
+```
+
+#### Plain Caching
+
+You can also use refcache as a traditional function cache without entity tracking:
+
+```python
+# Simple function cache (no entity tracking)
+@cache()
+def calculate_value(x, y):
+    # Expensive computation here
+    return x * y * 100
+
+# Invalidate by function name
+cache.invalidate_func(calculate_value)
+
+# Or with entity_type but disabled entity tracking
+@cache(entity_type="product", func_key_only=True)
+def get_product(product_id):
+    # This has entity_type but won't be part of entity-based invalidation
+    # Useful when you want consistent naming but don't need tracking
+    return {"id": product_id, "name": f"Product {product_id}"}
 ```
 
 ### Custom ID Fields
@@ -96,19 +120,40 @@ This means you don't need to remember all the different ways an entity might be 
 
 ### Cross-Service Caching
 
+By default, functions that access the same entity will share cache entries across different functions:
+
 ```python
 # In service A
-@cache(entity_type="user", cache_key="user.get_by_id", normalize_args=True)
+@cache(entity_type="user")
 def get_user(user_id):
     return {"id": user_id, "name": "User from Service A"}
 
 # In service B
-@cache(entity_type="user", cache_key="user.get_by_id", normalize_args=True)
-def fetch_user(id):  # Different function and parameter name
+@cache(entity_type="user")
+def fetch_user(id):  # Different function name
     return {"id": id, "name": "User from Service B"}
 ```
 
-Both services share the same cache entries, even with different function names and parameter orders.
+Both services will share the same cache entries automatically when accessing the same entity ID. 
+
+For more complex parameters or to disable this behavior, use `func_key_only=True`:
+
+```python
+# This function will use its own function-specific cache, not shared with others
+@cache(entity_type="user", func_key_only=True)
+def get_filtered_users(user_id, filters=None):
+    # Complex filtering operation that shouldn't share cache with other functions
+    return filtered_results
+```
+
+For backward compatibility, you can also use the explicit `cache_key` approach:
+
+```python
+# Using explicit cache key for complex cases
+@cache(entity_type="user", cache_key="user.get_by_id", normalize_args=True)
+def get_user_with_extra_data(user_id, include_details=False):
+    return {"id": user_id, "name": "User with details", "details": {...} if include_details else None}
+```
 ### Custom Entity Extraction
 
 ```python
@@ -186,7 +231,8 @@ Decorator for caching function results.
     cache_key=None,  # Custom cache key for function (optional)
     normalize_args=False,  # Whether to normalize arguments (optional)
     ttl=None,  # Override default TTL (optional)
-    id_field="id"  # Field name containing entity IDs (optional)
+    id_field="id",  # Field name containing entity IDs (optional)
+    func_key_only=False  # If True, disables cross-function sharing (optional)
 )
 def my_function():
     # ...
@@ -339,6 +385,34 @@ Both Redis and Memory backends automatically handle prefixing and stripping of p
 - **Lazy Logging**: Debug logging only occurs when debug mode is enabled
 - **Automatic Type Conversion**: Redis backends handle byte/string conversions automatically
 - **msgspec Integration**: Uses fast msgspec.msgpack serialization when available
+
+## Development and Testing
+
+### Docker Setup
+
+The repository includes a Docker Compose configuration for easy development and testing with Redis:
+
+```bash
+# Start Redis and Redis Commander UI
+docker-compose up -d
+
+# Access Redis Commander UI at http://localhost:8081
+# Username: admin
+# Password: refcache123
+```
+
+### Running Tests
+
+```bash
+# Run tests with Redis using the convenience script
+./run_tests.sh
+
+# Run specific tests
+./run_tests.sh tests/test_redis_backend.py
+
+# Or run pytest directly (with Redis running)
+pytest tests/test_redis_backend.py
+```
 
 ## License
 

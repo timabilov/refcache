@@ -72,8 +72,8 @@ class EntityCache:
         # Set serializer/deserializer with msgspec.msgpack as default if available
         if serializer is None:
             if HAS_MSGSPEC:
+                # logger.debug("Using msgspec.msgpack.encode as default serializer")
                 self.serializer = msgspec.msgpack.encode
-                logger.debug("Using msgspec.msgpack.encode as default serializer")
             else:
                 self.serializer = json.dumps
                 logger.debug("msgspec not available, using json.dumps as fallback serializer")
@@ -83,7 +83,7 @@ class EntityCache:
         if deserializer is None:
             if HAS_MSGSPEC:
                 self.deserializer = msgspec.msgpack.decode
-                logger.debug("Using msgspec.msgpack.decode as default deserializer")
+                # logger.debug("Using msgspec.msgpack.decode as default deserializer")
             else:
                 self.deserializer = json.loads
                 logger.debug("msgspec not available, using json.loads as fallback deserializer")
@@ -99,6 +99,7 @@ class EntityCache:
         normalize_args: bool = False,
         ttl: Optional[int] = None,
         id_field: str = 'id',
+        func_key_only: bool = False,
     ):
         """
         Main decorator that caches function results.
@@ -112,6 +113,9 @@ class EntityCache:
                            cache keys across services
             ttl: Optional override for TTL (defaults to instance TTL)
             id_field: Name of the field containing entity IDs (default: 'id')
+            func_key_only: If True, uses function-specific caching only (no entity-based sharing).
+                          If False (default), enables cross-function sharing for the same entity type
+                          and ID, making the cache usable across different processes or services.
 
         Returns:
             Decorated function
@@ -128,9 +132,16 @@ class EntityCache:
                 processed_args, processed_kwargs = self._normalize_params(
                     func, args, kwargs, normalize=normalize_args
                 )
-
-                # Generate function-specific key
-                func_key = self._generate_key(func_key_name, processed_args, processed_kwargs)
+                
+                # Generate the appropriate key
+                if entity_type and not func_key_only:
+                    # Use entity-type-based key for cross-function sharing
+                    # This simplifies the approach while still enabling sharing
+                    key_prefix = f"entity_type:{entity_type}"
+                    func_key = self._generate_key(key_prefix, processed_args, processed_kwargs)
+                else:
+                    # Use function-specific key (original behavior)
+                    func_key = self._generate_key(func_key_name, processed_args, processed_kwargs)
 
                 # Try to get the cached result
                 try:
@@ -172,10 +183,11 @@ class EntityCache:
                             entity_ids = self._extract_entity_ids(result, id_field)
 
                             if entity_ids:
-                                logger.debug("Found entity IDs: %s", entity_ids)
+                                logger.debug("[Reverse index] Found entity IDs: %s", entity_ids)
                                 for entity_id in entity_ids:
                                     # Create a direct index from entity to cache keys
-                                    entity_key = f"e:{entity_type}:{entity_id}"
+                                    # Format: entity:type:id for consistent, clear naming
+                                    entity_key = f"entity:{entity_type}:{entity_id}"
                                     pipeline.sadd(entity_key, func_key)
 
                                     # Set TTL on the entity index slightly longer than the cache TTL
@@ -183,7 +195,7 @@ class EntityCache:
                                     pipeline.expire(entity_key, effective_ttl + 300)  # 5 minutes longer
 
                         pipeline.execute()
-                        logger.debug("Reverse index recached successfully")
+                        logger.debug("[Reverse index] recached successfully")
                     except Exception as e:
                         logger.warning("Cache backend operations failed: %s", e)
                 except Exception as e:
@@ -191,7 +203,7 @@ class EntityCache:
                     logger.error("Caching error: %s", e)
 
                 return result
-
+            wrapper.cache_key = cache_key
             return wrapper
         return decorator
 
@@ -270,23 +282,33 @@ class EntityCache:
         else:
             return value
 
-    def _generate_key(self, func_name: str, args: Tuple, kwargs: Dict) -> str:
-        """Generate a unique cache key."""
-        # Start with function name
-        key = f"c:{func_name}:"
-
-        # Add a hash of the arguments
+    def _generate_key(self, prefix: str, args: Tuple, kwargs: Dict) -> str:
+        """
+        Generate a unique cache key.
+        
+        Args:
+            prefix: String to use as the key prefix (function name or entity type)
+            args: Function positional arguments
+            kwargs: Function keyword arguments
+            
+        Returns:
+            A unique cache key string with consistent format
+        """
+        # Create a hash of the arguments
         args_str = str(args) if args else ""
         kwargs_str = str(sorted(kwargs.items())) if kwargs else ""
         params_str = f"{args_str}{kwargs_str}"
-
+        
+        # Create a hash for the parameters
         if params_str:
-            # Create a hash for the parameters
             params_hash = hashlib.md5(params_str.encode()).hexdigest()
-            key += params_hash
         else:
-            key += "noargs"
-
+            params_hash = "noargs"
+        
+        # Format: cache:prefix:params_hash
+        # Consistent format makes debugging easier
+        key = f"cache:{prefix}:{params_hash}"
+        
         return key
 
     def _extract_entity_ids(self, result, id_field='id'):
@@ -331,7 +353,7 @@ class EntityCache:
             Number of keys invalidated
         """
         # Get the key for this entity
-        entity_key = f"e:{entity_type}:{entity_id}"
+        entity_key = f"entity:{entity_type}:{entity_id}"
         logger.debug("Invalidating entity %s:%s", entity_type, entity_id)
 
         try:
@@ -345,19 +367,29 @@ class EntityCache:
             # Convert from bytes if needed
             cache_keys = [k.decode('utf-8') if isinstance(k, bytes) else k for k in cache_keys]
             logger.debug("Found %d cache keys to invalidate", len(cache_keys))
-
+            # cache:tests.test_redis_integration.get_user_isolated:c0a8a20f903a4915b94db8de3ea63195
             # Delete all these specific cache keys and the entity index
             try:
                 pipeline = self._pipeline()
-
+                
                 if cache_keys:
-                    pipeline.delete(*cache_keys)
-
+                    # This is not consistent, for each run not deletes all!
+                    # pipeline.delete(*cache_keys)
+                    for key in cache_keys:
+                        pipeline.delete(key)
+                    # pipeline.delete(cache_keys[1])
                 # Delete the entity key itself
                 pipeline.delete(entity_key)
 
-                pipeline.execute()
+                result = pipeline.execute()
                 logger.info("Invalidated %d cache entries for %s:%s", len(cache_keys), entity_type, entity_id)
+                logger.debug("Keys invalidated: %s result: %s", cache_keys, result)
+                for key in self.backend.keys(f"*"):
+                    try:
+                        print(key , '-> ',self.backend.smembers(key), '\n')
+                    except:
+                        print(key , '-> ', msgspec.msgpack.decode(self.backend.get(key)), '\n')
+                    print('-------------------')
                 return len(cache_keys)
             except Exception as e:
                 logger.error("Error in pipeline execution: %s", e)
@@ -382,7 +414,7 @@ class EntityCache:
         logger.debug("Invalidating all cache entries for function: %s", func_name)
         try:
             # Find all cache keys for this function name pattern
-            pattern = f"c:{func_name}:*"
+            pattern = f"cache:{func_name}:*"
             func_keys = self.backend.keys(pattern)
 
             if not func_keys:
@@ -475,7 +507,10 @@ class EntityCache:
         Returns:
             Number of keys invalidated
         """
-        func_name = f"{func.__module__}.{func.__name__}"
+        if getattr(func, 'cache_key', None):
+            func_name = func.cache_key
+        else:
+            func_name = f"{func.__module__}.{func.__name__}"
         return self.invalidate_function(func_name)
 
     def invalidate_func_call(self, func, *args, **kwargs):

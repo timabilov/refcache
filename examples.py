@@ -51,9 +51,9 @@ redis_client = Redis(host='localhost', port=6379, db=0)
 redis_backend = RedisBackend(redis_client, key_prefix="services:")
 cache = EntityCache(backend=redis_backend)
 
+# No need for explicit cache_key - entity-based caching is now automatic
 @cache(
     entity_type="user",
-    cache_key="user.get_by_id",  # Common cache key
     normalize_args=True
 )
 def get_user_details(user_id):
@@ -63,14 +63,27 @@ def get_user_details(user_id):
 # In service B:
 # from common.cache import cache  # Same shared cache instance
 
+# This will automatically share cache with get_user_details when accessing same user_id
 @cache(
     entity_type="user",
-    cache_key="user.get_by_id",  # Same cache key
     normalize_args=True
 )
 def fetch_user(id):  # Different parameter name
     """Get user in service B."""
     return {"id": id, "name": "User Name", "email": "user@example.com"}
+
+# For functions where sharing is not desired, use func_key_only=True
+@cache(
+    entity_type="user",
+    func_key_only=True,  # Prevents sharing with other functions
+    normalize_args=True
+)
+def get_user_with_filtering(user_id, include_details=False):
+    """Get user with additional filtering - not suitable for sharing."""
+    result = {"id": user_id, "name": "User Name"}
+    if include_details:
+        result["details"] = {"email": "user@example.com", "address": "123 Main St"}
+    return result
 
 
 # Example 4: Complex filtering with multiple entities

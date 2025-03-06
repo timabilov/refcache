@@ -182,6 +182,188 @@ def test_entity_cache_invalidate_key(memory_cache):
     assert call_count == 3
 
 
+def test_plain_cache_without_entity_type(memory_cache):
+    """Test using the cache as a plain function cache without entity type."""
+    call_count = 0
+
+    @memory_cache()  # No entity_type specified
+    def get_data(data_id):
+        nonlocal call_count
+        call_count += 1
+        return {"id": data_id, "value": f"Data {data_id}"}
+
+    # First call should execute the function
+    data1 = get_data(1)
+    assert data1["id"] == 1
+    assert call_count == 1
+
+    # Second call with same args should use cache
+    data1_again = get_data(1)
+    assert data1_again["id"] == 1
+    assert call_count == 1
+
+    # Call with different id should execute again
+    data2 = get_data(2)
+    assert data2["id"] == 2
+    assert call_count == 2
+
+    # Verify that invalidate_entity doesn't affect this cache
+    # because it's not using entity tracking
+    memory_cache.invalidate_entity("data", 1)
+    data1_after = get_data(1)
+    assert data1_after["id"] == 1
+    # should be cached because we above function is not linked to "data" entity!
+    assert call_count == 2
+
+    # Function-specific invalidation should work
+    memory_cache.invalidate_func(get_data)
+    data1_refetch = get_data(1)
+    assert data1_refetch["id"] == 1
+    assert call_count == 3  # Should increase after invalidation
+
+
+def test_plain_cache_with_func_key_only(memory_cache):
+    """Test using the cache with entity_type but func_key_only=True."""
+    call_count = 0
+
+    @memory_cache(entity_type="product", func_key_only=True)
+    def get_product(product_id):
+        nonlocal call_count
+        call_count += 1
+        return {"id": product_id, "name": f"Product {product_id}"}
+
+    # First call should execute the function
+    product1 = get_product(1)
+    assert product1["id"] == 1
+    assert call_count == 1
+
+    # Second call with same args should use cache
+    product1_again = get_product(1)
+    assert product1_again["id"] == 1
+    assert call_count == 1
+
+    # Verify that invalidate_entity also *invalidates* entity cache
+    memory_cache.invalidate_entity("product", 1)
+    product1_after = get_product(1)
+    assert product1_after["id"] == 1
+    assert call_count == 2  # Should not be cached.
+
+    # Function-specific invalidation should work
+    memory_cache.invalidate_func(get_product)
+    product1_refetch = get_product(1)
+    assert product1_refetch["id"] == 1
+    assert call_count == 3  # Should increase after invalidation
+
+
+def test_mixed_entity_and_plain_caching(memory_cache):
+    """Test using both entity-tracked and plain caching in the same environment."""
+    call_count = 0
+
+    # Function with entity tracking
+    @memory_cache(entity_type="user")
+    def get_user(user_id):
+        nonlocal call_count
+        call_count += 1
+        return {"id": user_id, "name": f"User {user_id}"}
+
+    # Function with plain caching (no entity tracking)
+    @memory_cache()
+    def get_user_stats(user_id):
+        nonlocal call_count
+        call_count += 1
+        return {"user_id": user_id, "logins": 10, "last_seen": "2023-01-01"}
+
+    # Entity-tracked function with same entity type but func_key_only=True
+    @memory_cache(entity_type="user", func_key_only=True)
+    def get_user_preferences(user_id):
+        nonlocal call_count
+        call_count += 1
+        return {"user_id": user_id, "theme": "dark", "notifications": True}
+
+    # Call all functions
+    user = get_user(1)
+    stats = get_user_stats(1)
+    prefs = get_user_preferences(1)
+    assert call_count == 3
+
+    # Call again - all should be cached
+    get_user(1)
+    get_user_stats(1)
+    get_user_preferences(1)
+    assert call_count == 3
+
+    # Invalidate entity - should only affect entity-tracked function
+    memory_cache.invalidate_entity("user", 1)
+    
+    # Entity-tracked function should re-execute
+    get_user(1)
+    assert call_count == 4
+    
+    # Plain cache functions should still use cache
+    get_user_stats(1)
+    assert call_count == 4
+    
+    # func_key_only=True function should still use cache despite having entity_type
+    get_user_preferences(1)
+    assert call_count == 4
+
+    # Invalidate a specific function - should only affect that function
+    memory_cache.invalidate_func(get_user_stats)
+    
+    # This function should re-execute
+    get_user_stats(1)
+    assert call_count == 5
+    
+    # Other functions should still use cache
+    get_user(1)
+    get_user_preferences(1)
+    assert call_count == 5
+
+    # Invalidate all - should affect all functions
+    memory_cache.invalidate_all()
+    
+    # All functions should re-execute
+    get_user(1)
+    get_user_stats(1)
+    get_user_preferences(1)
+    assert call_count == 8
+
+
+def test_plain_cache_custom_key_name(memory_cache):
+    """Test using a custom cache_key with plain caching."""
+    call_count = 0
+
+    @memory_cache(cache_key="custom_cache_key")
+    def function_with_long_name(data_id):
+        nonlocal call_count
+        call_count += 1
+        return {"id": data_id, "value": f"Data {data_id}"}
+
+    # First call should execute the function
+    data = function_with_long_name(1)
+    assert data["id"] == 1
+    assert call_count == 1
+
+    # Second call should use cache
+    data_again = function_with_long_name(1)
+    assert data_again["id"] == 1
+    assert call_count == 1
+
+    # Invalidate using the custom cache key
+    memory_cache.invalidate_function("custom_cache_key")
+    
+    # Function should re-execute
+    function_with_long_name(1)
+    assert call_count == 2
+
+    # The convenience method should also work with the function object
+    memory_cache.invalidate_func(function_with_long_name)
+    
+    # Function should re-execute
+    function_with_long_name(1)
+    assert call_count == 3
+
+
 def test_entity_cache_invalidate_all(memory_cache):
     """Test invalidating all cache entries."""
     call_count = 0
@@ -226,7 +408,7 @@ def test_entity_cache_invalidate_all(memory_cache):
 def test_entity_cache_ttl(memory_cache):
     """Test cache entry expiration."""
     # Use a short TTL
-    memory_cache.ttl = 1
+    memory_cache.ttl = 0.3
 
     call_count = 0
 
@@ -247,7 +429,7 @@ def test_entity_cache_ttl(memory_cache):
     assert call_count == 1
 
     # Wait for TTL to expire
-    time.sleep(1.1)
+    time.sleep(0.4)
 
     # Call again - should re-execute
     result3 = test_func(1)
@@ -259,7 +441,7 @@ def test_entity_cache_function_ttl_override(memory_cache):
     """Test TTL override at function level."""
     call_count = 0
 
-    @memory_cache(ttl=1)  # Override default TTL
+    @memory_cache(ttl=0.3)  # Override default TTL
     def test_func(a):
         nonlocal call_count
         call_count += 1
@@ -276,7 +458,7 @@ def test_entity_cache_function_ttl_override(memory_cache):
     assert call_count == 1
 
     # Wait for TTL to expire
-    time.sleep(1.1)
+    time.sleep(0.4)
 
     # Call again - should re-execute
     result3 = test_func(1)

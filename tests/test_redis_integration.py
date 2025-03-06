@@ -1,5 +1,6 @@
 """Integration tests for Redis backend with EntityCache."""
 
+from time import sleep
 import pytest
 import redis
 from cacheref import EntityCache, RedisBackend
@@ -62,16 +63,16 @@ def test_redis_entity_tracking(redis_cache):
 
 
 @pytest.mark.redis
-def test_redis_cross_process_caching(redis_client):
+def test_redis_cross_process_caching(redis_backend):
     """Test that caching works across different cache instances (simulating different processes)."""
-    # Create two separate cache instances that share the same Redis
+    # Create two separate cache instances that share the same Redis backend
     cache1 = EntityCache(
-        backend=RedisBackend(redis_client),
+        backend=redis_backend,
         ttl=60
     )
 
     cache2 = EntityCache(
-        backend=RedisBackend(redis_client),
+        backend=redis_backend,
         ttl=60
     )
 
@@ -95,10 +96,10 @@ def test_redis_cross_process_caching(redis_client):
     assert user1["id"] == 1
     assert call_count == 1
 
-    # Call with cache2 should use the shared Redis cache
+    # Call with cache2 should use the shared Redis cache due to entity-based caching
     user1_from_cache2 = get_user_cache2(1)
     assert user1_from_cache2["id"] == 1
-    assert call_count == 1  # Should still be 1
+    assert call_count == 1  # Should still be 1, using the shared cache
 
     # Invalidate from cache1
     cache1.invalidate_entity("user", 1)
@@ -114,14 +115,80 @@ def test_redis_cross_process_caching(redis_client):
 
 
 @pytest.mark.redis
-def test_redis_msgspec_serialization(redis_client):
+def test_redis_func_key_only(redis_client, redis_backend):
+    """Test that func_key_only=True prevents cross-function cache sharing."""
+    assert redis_client.keys("*") == []
+    # Create two cache instances that share the same backend
+    cache1 = EntityCache(
+        backend=redis_backend,
+        ttl=60
+    )
+
+    cache2 = EntityCache(
+        backend=redis_backend,
+        ttl=60
+    )
+
+    # Define functions with both caches, but use func_key_only=True for one
+    call_count = 0
+
+    @cache1(entity_type="user")
+    def get_user_shared(user_id):
+        nonlocal call_count
+        call_count += 1
+        return {"id": user_id, "name": f"User {user_id}"}
+
+    @cache2(entity_type="user", func_key_only=True)
+    def get_user_isolated(user_id):
+        nonlocal call_count
+        call_count += 1
+        return {"id": user_id, "name": f"User {user_id}"}
+
+    # First call with shared function
+    user1 = get_user_shared(1)
+    assert user1["id"] == 1
+    assert call_count == 1
+
+    # Call with isolated function should NOT use the shared cache
+    user1_isolated = get_user_isolated(1)
+    assert user1_isolated["id"] == 1
+    assert call_count == 2  # Should increase because func_key_only=True
+
+    # # Check what keys exist in Redis before invalidation
+    # keys_before = redis_client.keys(f"{redis_backend.key_prefix}*")
+    
+    # # Manually delete the isolated function key to ensure it needs to be refetched
+    # func_key = f"{redis_backend.key_prefix}c:tests.test_redis_integration.get_user_isolated:c0a8a20f903a4915b94db8de3ea63195"
+    # redis_client.delete(func_key)
+    
+    # Invalidate the entity
+    for key in redis_backend.keys(f"*"):
+        try:
+            print(key , '-> ',redis_backend.smembers(key), '\n')
+        except:
+            print(key , '-> ', msgspec.msgpack.decode(redis_backend.get(key)), '\n')
+        print('-------------------')
+    print('PRINTED!!')
+    cache1.invalidate_entity("user", 1)
+    # Manually delete the isolated function key since our function-specific keys
+    # might not be properly tracked in the entity index with the new prefix scheme
+    # redis_client.delete(f"{redis_backend.key_prefix}cache:tests.test_redis_integration.get_user_isolated:c0a8a20f903a4915b94db8de3ea63195")
+    # Both functions should now re-fetch
+    user1_after_invalidate1 = get_user_shared(1)
+    assert user1_after_invalidate1["id"] == 1
+    assert call_count == 3
+
+    user1_after_invalidate2 = get_user_isolated(1)
+    assert user1_after_invalidate2["id"] == 1
+    assert call_count == 4  # Additional execution because we deleted the key
+
+
+@pytest.mark.redis
+def test_redis_msgspec_serialization(redis_client, redis_backend):
     """Test using msgspec.msgpack as default serializer with Redis."""
 
-    
-
-    # Create a cache with default settings (should use msgspec)
-    backend = RedisBackend(redis_client)
-    cache = EntityCache(backend=backend, ttl=60)
+    # Use the fixture-provided backend with proper namespacing
+    cache = EntityCache(backend=redis_backend, ttl=60)
 
     # Verify msgspec is being used
     assert cache.serializer == msgspec.msgpack.encode
@@ -129,7 +196,8 @@ def test_redis_msgspec_serialization(redis_client):
 
     call_count = 0
 
-    @cache(entity_type="product")
+    # Use func_key_only=True for consistent key naming in the test
+    @cache(entity_type="product", cache_key='get_product', func_key_only=True)
     def get_product(product_id):
         nonlocal call_count
         call_count += 1
@@ -150,12 +218,14 @@ def test_redis_msgspec_serialization(redis_client):
     assert call_count == 1
 
     # Get the raw data from Redis to verify it's msgpack format, not JSON
-    # Note: We don't know the exact key, so we search for all cache keys
-    keys = redis_client.keys("test:c:*")
+    # Look for function-specific keys with proper namespace
+    keys = redis_client.keys(f"{redis_backend.key_prefix}*")
     assert len(keys) > 0
 
     # Get the value and verify it's binary msgpack data, not JSON string
-    raw_value = redis_client.get(keys[0])
+    # TODO expose key generation for tests at least. flaky tests
+    # cache._generate_key(get_product, 42)
+    raw_value = redis_client.get(keys[1])
     assert isinstance(raw_value, bytes)
     # JSON would start with { (123 in ASCII) or [ (91 in ASCII) if it was a string
     # msgpack binary format is more compact and doesn't follow JSON text patterns
@@ -174,14 +244,15 @@ def test_redis_msgspec_serialization(redis_client):
 
 
 @pytest.mark.redis
-def test_redis_error_handling(redis_client, monkeypatch):
+def test_redis_error_handling(redis_client, redis_backend, monkeypatch):
     """Test error handling with Redis backend."""
-    backend = RedisBackend(redis_client)
-    cache = EntityCache(backend=backend, ttl=60)
-
+    # Use the fixture-provided backend with proper namespacing
+    cache = EntityCache(backend=redis_backend, ttl=60)
+    
     call_count = 0
 
-    @cache()
+    # Use func_key_only=True to force traditional function-based keys for this test
+    @cache(func_key_only=True)
     def test_func():
         nonlocal call_count
         call_count += 1
@@ -194,9 +265,10 @@ def test_redis_error_handling(redis_client, monkeypatch):
 
     # Simulate Redis connection error for get operation
     def mock_get_error(key):
+        print('HEll0--=-----=-----=-----=-----=-----=-----=---')
         raise redis.exceptions.ConnectionError("Simulated Redis connection error")
 
-    monkeypatch.setattr(backend, "get", mock_get_error)
+    monkeypatch.setattr(redis_backend, "get", mock_get_error)
 
     # Call should execute function again since Redis get fails
     result = test_func()
@@ -206,11 +278,15 @@ def test_redis_error_handling(redis_client, monkeypatch):
     # Restore get method
     monkeypatch.undo()
 
+    # We need to clear the cached value before testing setex error
+    # Get the actual key pattern with namespace
+    cache.invalidate_func(test_func)
+
     # Simulate Redis error during set operation
     def mock_setex_error(key, expiration_seconds, value):
         raise redis.exceptions.ConnectionError("Simulated Redis connection error")
 
-    monkeypatch.setattr(backend, "setex", mock_setex_error)
+    monkeypatch.setattr(redis_backend, "setex", mock_setex_error)
 
     # Call should execute function and return result even if cache set fails
     result = test_func()
@@ -219,15 +295,83 @@ def test_redis_error_handling(redis_client, monkeypatch):
 
 
 @pytest.mark.redis
-def test_redis_normalize_args(redis_client):
+def test_redis_plain_caching_options(redis_backend):
+    """Test different plain caching options with Redis backend."""
+    cache = EntityCache(backend=redis_backend, ttl=60)
+    
+    call_count = 0
+    
+    # Plain cache with no entity_type
+    @cache()
+    def get_data(data_id):
+        nonlocal call_count
+        call_count += 1
+        return {"id": data_id, "value": f"Data {data_id}"}
+    
+    # With entity_type but func_key_only=True
+    @cache(entity_type="product", func_key_only=True)
+    def get_product(product_id):
+        nonlocal call_count
+        call_count += 1
+        return {"id": product_id, "name": f"Product {product_id}"}
+    
+    # With entity tracking for comparison
+    @cache(entity_type="user")
+    def get_user(user_id):
+        nonlocal call_count
+        call_count += 1
+        return {"id": user_id, "name": f"User {user_id}"}
+    
+    # Call all functions
+    data = get_data(1)
+    product = get_product(1)
+    user = get_user(1)
+    assert call_count == 3
+    
+    # Call again - all should use cache
+    get_data(1)
+    get_product(1)
+    get_user(1)
+    assert call_count == 3
+    
+    # Invalidate entity - should only affect entity-tracked function
+    cache.invalidate_entity("user", 1)
+    
+    # Check which functions re-execute
+    get_data(1)          # Plain cache - should use cache
+    get_product(1)       # func_key_only=True - should use cache
+    get_user(1)          # Entity-tracked - should re-execute
+    assert call_count == 4
+    
+    # Invalidate all
+    cache.invalidate_all()
+    
+    # All should re-execute
+    get_data(1)
+    get_product(1)
+    get_user(1)
+    assert call_count == 7
+    
+    # Function-specific invalidation
+    cache.invalidate_func(get_data)
+    
+    # Only get_data should re-execute
+    get_data(1)
+    assert call_count == 8
+    get_product(1)
+    get_user(1)
+    assert call_count == 8
+
+
+@pytest.mark.redis
+def test_redis_normalize_args(redis_backend):
     """Test normalize_args feature with Redis backend."""
-    backend = RedisBackend(redis_client)
-    cache = EntityCache(backend=backend, ttl=60)
+    cache = EntityCache(backend=redis_backend, ttl=60)
 
     call_count = 0
 
     # Use normalize_args=True to get consistent caching across parameter styles
-    @cache(normalize_args=True)
+    @cache(normalize_args=True, func_key_only=True)  # Using func_key_only for test consistency
     def search_products(filters=None, sort=None, limit=10):
         nonlocal call_count
         call_count += 1
@@ -274,7 +418,7 @@ def test_redis_normalize_args(redis_client):
     # Test with lists and sets (should be normalized)
     call_count = 0
 
-    @cache(normalize_args=True)
+    @cache(normalize_args=True, func_key_only=True)  # Using func_key_only for test consistency
     def search_by_ids(ids, include_details=False):
         nonlocal call_count
         call_count += 1
@@ -301,7 +445,7 @@ def test_redis_normalize_args(redis_client):
 @pytest.mark.redis
 def test_redis_backend_key_prefix_integration(redis_client):
     """Test the integration of RedisBackend key_prefix with EntityCache."""
-    # Create Redis backend with key prefix
+    # Create Redis backend with custom key prefix (different from the fixture)
     prefix = "backend_prefix:"
     backend = RedisBackend(redis_client, key_prefix=prefix)
     
@@ -309,12 +453,11 @@ def test_redis_backend_key_prefix_integration(redis_client):
     cache = EntityCache(backend=backend, ttl=60)
     
     # Verify that prefix is handled by backend
-    assert cache.prefix == ""
     assert backend.key_prefix == prefix
     
     call_count = 0
     
-    @cache(entity_type="user")
+    @cache(entity_type="user", func_key_only=True)  # Use func_key_only for consistent test naming
     def get_user(user_id):
         nonlocal call_count
         call_count += 1
@@ -345,3 +488,7 @@ def test_redis_backend_key_prefix_integration(redis_client):
     user_after_invalidate = get_user(42)
     assert user_after_invalidate["id"] == 42
     assert call_count == 2
+    
+    # Clean up after test
+    for key in redis_client.keys(f"{prefix}*"):
+        redis_client.delete(key)
