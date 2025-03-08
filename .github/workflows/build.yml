@@ -64,12 +64,12 @@ jobs:
           echo "TOTAL_COVERAGE=$TOTAL_COVERAGE" >> $GITHUB_ENV
           echo "Generated coverage percentage: $TOTAL_COVERAGE%"
 
-      # Update README.md with coverage badge
       - name: Update README with coverage badge
         run: |
-          BADGE_URL="https://img.shields.io/badge/coverage-${{ env.TOTAL_COVERAGE }}%25-brightgreen"
-          sed -i "/<!-- COVERAGE_BADGE -->/c\<!-- COVERAGE_BADGE -->\n[![Coverage]($BADGE_URL)](https://github.com/${{ github.repository }})" README.md
-        if: github.event_name == 'push' 
+         BADGE_URL="https://img.shields.io/badge/coverage-${{ env.TOTAL_COVERAGE }}%25-brightgreen"
+         sed -i '/<!-- COVERAGE_BADGE -->/{n;d;}' README.md  # Delete the line after the placeholder
+         sed -i '/<!-- COVERAGE_BADGE -->/a\[![Coverage]('"${BADGE_URL}"')](https://github.com/${{ github.repository }})' README.md
+        if: github.event_name == 'push'
 
       - name: Commit README changes
         run: |
