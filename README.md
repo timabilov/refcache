@@ -1,14 +1,43 @@
 # CacheRef
 
-#### Cache decorator optimized for event-driven, precision-targeted invalidation 🚀
+#### Cache decorator optimized for entity-event-driven & precision-targeted invalidation 🚀
 
+This ensures fresh records with real-time update & synchronization support.
+
+
+- [Features](#features)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Usage Examples](#usage-examples)
+  - [Basic Usage](#basic-usage)
+    - [With Entity Tracking](#with-entity-tracking)
+    - [Plain Caching](#plain-caching)
+  - [Custom ID Fields](#custom-id-fields)
+- [How It Works](#how-it-works)
+- [Why not basic cache libraries?](#why-not-basic-cache-libraries)
+- [Advanced Usage](#advanced-usage)
+  - [Cross-Service Caching](#cross-service-caching)
+  - [Custom Entity Extraction (TODO)](#custom-entity-extraction-todo)
+  - [Custom Serialization](#custom-serialization)
+- [API Reference](#api-reference)
+  - [EntityCache](#entitycache)
+  - [@cache()](#cache)
+  - [Invalidation Methods](#invalidation-methods)
+  - [Cache Backends](#cache-backends)
+    - [1. Redis Backend (Optional)](#1-redis-backend-optional)
+    - [2. In-Memory Backend](#2-in-memory-backend-great-for-testing-or-small-applications)
+    - [3. Custom Backends](#3-custom-backends)
+  - [Logging and Debugging](#logging-and-debugging)
+- [Development and Testing](#development-and-testing)
+  - [Running Tests](#running-tests)
+- [License](#license)
 
 ## Features
 
-- 🔑 **Smart Invalidation**: Automatically tracks which entities appear in cached results
+- 🔑 **Smart Invalidation**: Automatically tracks which changed entities appear in cached results
 - 📋 **Custom ID Fields**: Support for entities with non-standard ID field names
 - 🔒 **Custom Serialization**: Cache objects that aren't JSON-serializable
-- 🔄 **Cross-Service Compatible**: Share cache references between different services 
+- 🔄 **Cross-Service Compatible**: Share cache references between different services with simple invalidation triggers
 
 ## Installation
 
