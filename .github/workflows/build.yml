@@ -9,10 +9,13 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write  # Required for git push
+
 jobs:
   test:
     runs-on: ubuntu-latest
-
+    if: github.event_name != 'push' || github.event.head_commit.message != 'Update coverage badge in README'
     steps:
       # Checkout the repository code
       - name: Checkout code
