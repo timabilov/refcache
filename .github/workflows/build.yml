@@ -37,7 +37,17 @@ jobs:
       - name: Install project dependencies
         run: |
           poetry install --with dev 
+      - name: Spin Redis
+        run: |
+          docker-compose up -d
 
+          # Wait for Redis to be ready
+          echo "Waiting for Redis to be ready..."
+          until docker-compose exec -T redis redis-cli ping | grep -q PONG
+          do
+          echo "Redis not ready yet, retrying..."
+          sleep 1
+          done
       # Run tests with coverage using Poetry
       - name: Run pytest with coverage
         run: |
