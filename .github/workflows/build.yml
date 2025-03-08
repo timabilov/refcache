@@ -35,7 +35,7 @@ jobs:
           poetry install --with dev 
       - name: Spin Redis
         run: |
-          docker-compose up -d
+          docker compose up -d redis
 
           # Wait for Redis to be ready
           echo "Waiting for Redis to be ready..."
