@@ -1,7 +1,6 @@
 # CacheRef
 <!-- COVERAGE_BADGE -->
 [![Coverage](https://img.shields.io/badge/coverage-62%25-brightgreen)](https://github.com/timabilov/refcache)
-[![Coverage](https://img.shields.io/badge/coverage-92%25-brightgreen)](https://github.com/timabilov33/refcache)
 
 #### Cache decorator optimized for entity-event-driven & precision-targeted invalidation 🚀
 
