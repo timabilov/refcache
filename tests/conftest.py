@@ -36,7 +36,7 @@ def memory_cache(memory_backend):
 
     Uses the memory_backend fixture for proper namespacing in parallel tests.
     """
-    return EntityCache(backend=memory_backend, ttl=60, debug=True)
+    return EntityCache(backend=memory_backend, debug=True)
 
 try:
     import redis
@@ -88,7 +88,7 @@ def redis_backend(redis_client, request):
 @pytest.fixture
 def redis_cache(redis_backend):
     """Return an EntityCache with Redis backend."""
-    return EntityCache(backend=redis_backend, ttl=60, debug=True)
+    return EntityCache(backend=redis_backend, debug=True)
 
 # Add a marker for Redis tests
 def pytest_configure(config):

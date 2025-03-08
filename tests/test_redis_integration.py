@@ -68,12 +68,12 @@ def test_redis_cross_process_caching(redis_backend):
     # Create two separate cache instances that share the same Redis backend
     cache1 = EntityCache(
         backend=redis_backend,
-        ttl=60
+       locked_ttl=60
     )
 
     cache2 = EntityCache(
         backend=redis_backend,
-        ttl=60
+       locked_ttl=60
     )
 
     # Define functions with both caches
@@ -121,12 +121,12 @@ def test_redis_scope_function(redis_client, redis_backend):
     # Create two cache instances that share the same backend
     cache1 = EntityCache(
         backend=redis_backend,
-        ttl=60
+       locked_ttl=60
     )
 
     cache2 = EntityCache(
         backend=redis_backend,
-        ttl=60
+       locked_ttl=60
     )
 
     # Define functions with both caches, but use scope='function' for one
@@ -170,7 +170,7 @@ def test_redis_msgspec_serialization(redis_client, redis_backend):
     """Test using msgspec.msgpack as default serializer with Redis."""
 
     # Use the fixture-provided backend with proper namespacing
-    cache = EntityCache(backend=redis_backend, ttl=60)
+    cache = EntityCache(backend=redis_backend,locked_ttl=60)
 
     # Verify msgspec is being used
     assert cache.serializer == msgspec.msgpack.encode
@@ -205,10 +205,9 @@ def test_redis_msgspec_serialization(redis_client, redis_backend):
     assert len(keys) > 0
 
     # Get the value and verify it's binary msgpack data, not JSON string
-    # TODO expose key generation for tests at least. flaky tests
-    # cache._generate_key(get_product, 42)
-    raw_value = redis_client.get(keys[1])
+    raw_value = redis_backend.get(cache.get_cache_key(get_product, 42))
     assert isinstance(raw_value, bytes)
+
     # JSON would start with { (123 in ASCII) or [ (91 in ASCII) if it was a string
     # msgpack binary format is more compact and doesn't follow JSON text patterns
     assert raw_value[0] != 123 and raw_value[0] != 91
@@ -229,7 +228,7 @@ def test_redis_msgspec_serialization(redis_client, redis_backend):
 def test_redis_error_handling(redis_client, redis_backend, monkeypatch):
     """Test error handling with Redis backend."""
     # Use the fixture-provided backend with proper namespacing
-    cache = EntityCache(backend=redis_backend, ttl=60)
+    cache = EntityCache(backend=redis_backend,locked_ttl=60)
 
     call_count = 0
 
@@ -247,7 +246,6 @@ def test_redis_error_handling(redis_client, redis_backend, monkeypatch):
 
     # Simulate Redis connection error for get operation
     def mock_get_error(key):
-        print('HEll0--=-----=-----=-----=-----=-----=-----=---')
         raise redis.exceptions.ConnectionError("Simulated Redis connection error")
 
     monkeypatch.setattr(redis_backend, "get", mock_get_error)
@@ -279,7 +277,7 @@ def test_redis_error_handling(redis_client, redis_backend, monkeypatch):
 @pytest.mark.redis
 def test_redis_plain_caching_options(redis_backend):
     """Test different plain caching options with Redis backend."""
-    cache = EntityCache(backend=redis_backend, ttl=60)
+    cache: EntityCache = EntityCache(backend=redis_backend,locked_ttl=60)
 
     call_count = 0
 
@@ -348,7 +346,7 @@ def test_redis_plain_caching_options(redis_backend):
 @pytest.mark.redis
 def test_redis_normalize_args(redis_backend):
     """Test normalize_args feature with Redis backend."""
-    cache = EntityCache(backend=redis_backend, ttl=60)
+    cache = EntityCache(backend=redis_backend,locked_ttl=60)
 
     call_count = 0
 
@@ -432,7 +430,7 @@ def test_redis_backend_key_prefix_integration(redis_client):
     backend = RedisBackend(redis_client, key_prefix=prefix)
 
     # Create EntityCache without entity-level prefix (to use backend's prefix)
-    cache = EntityCache(backend=backend, ttl=60)
+    cache = EntityCache(backend=backend,locked_ttl=60)
 
     # Verify that prefix is handled by backend
     assert backend.key_prefix == prefix

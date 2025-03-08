@@ -1,17 +1,14 @@
 # CacheRef
 
-A Python caching decorator that tracks which entities appear in function results, allowing for precise cache invalidation when entities change.
+#### Cache decorator optimized for event-driven, precision-targeted invalidation 🚀
+
 
 ## Features
 
 - 🔑 **Smart Invalidation**: Automatically tracks which entities appear in cached results
-- 🚀 **Flexible Backends**: Use Redis, in-memory, or custom backends
 - 📋 **Custom ID Fields**: Support for entities with non-standard ID field names
 - 🔒 **Custom Serialization**: Cache objects that aren't JSON-serializable
-- 🔍 **Debugging**: Detailed logging for debugging cache operations
-- 🔄 **Cross-Service Compatible**: Share cache between different services
-- 🧠 **Argument Normalization**: Normalize function arguments for consistent cache keys
-- 🛡️ **Error Resilient**: Won't break your app if caching fails
+- 🔄 **Cross-Service Compatible**: Share cache references between different services 
 
 ## Installation
 
@@ -39,12 +36,10 @@ from cacheref import EntityCache, RedisBackend
 # Initialize with Redis backend and namespacing
 redis_client = Redis(host='localhost', port=6379)
 backend = RedisBackend(redis_client, key_prefix="app:")
-cache = EntityCache(backend=backend, ttl=3600)
+cache = EntityCache(backend=backend, locked_ttl=3600)
 
-# Or use in-memory backend for testing (default if no backend is provided)
-from cacheref import MemoryBackend
-test_cache = EntityCache(backend=MemoryBackend(key_prefix="test:"))
-memory_cache = EntityCache()  # Uses in-memory backend by default
+# Or use in-memory backend for testing (default)
+memory_cache = EntityCache()
 ```
 
 ## Usage Examples
@@ -56,7 +51,7 @@ memory_cache = EntityCache()  # Uses in-memory backend by default
 ```python
 @cache(entity="user")
 def get_user(user_id):
-    # Your database query here
+    # Your database/interservice query here
     return {"id": user_id, "name": f"User {user_id}"}
 
 # Get user (will be cached)
@@ -88,7 +83,7 @@ cache.invalidate_func(calculate_value)
 ### Custom ID Fields
 
 ```python
-@cache(entity="customer", id_field="customer_id")
+@cache(entity="customer", id_key="customer_id")
 def get_customer(customer_id):
     # Your database query here
     return {"customer_id": customer_id, "name": f"Customer {customer_id}"}
@@ -98,8 +93,8 @@ def get_customer(customer_id):
 When a function is decorated with `@cache(entity="user")`:
 
 1. The decorator **caches the function result**
-2. It **extracts entity IDs** from the result (e.g., `{"id": 42, ...}` or using a custom ID field)
-3. It **creates an index** mapping each entity to cache keys containing it
+2. It **extracts entity reference IDs** from the result (e.g., `{"id": 42, ...}`
+3. It **creates an reverse index** mapping for each entity to cache function keys containing it
 
 When an entity changes:
 
@@ -110,61 +105,38 @@ When an entity changes:
 
 This means you don't need to remember all the different ways an entity might be cached - just invalidate by entity ID, and all relevant caches are automatically cleared.
 
+>❗ To ensure cache consistency across the system, please bear in mind these rules:
+>* Maintain idempotency across all functions using the same cache key (cache key being - function or entity signature)
+>*  Ensure entity identity consistency - an entity with a specific ID must represent the identical data object across all system components.
+
+## Why not basic cache libraries?
+
+Most of the basic libraries do not track event-driven changes for invalidation as they donot need to. And even though there are a lot of ORM powered cache libraries with somewhat granular invalidation support, it is not scaled for any primitive data struct, especially when we are dealing with *simple* interservice communication.
+
 ## Advanced Usage
 
 ### Cross-Service Caching
 
-By default, functions that access the same entity will not share cache entries across different functions:
+To access same cache results across apps use common cache_key. On update of particular user cache is invalidated once.
 
 ```python
 # In service A
-@cache(entity="user")
+@cache(entity="user", cache_key="user.get_by_id")
 def get_user(user_id):
     return {"id": user_id, "name": "User from Service A"}
 
 # In service B
-@cache(entity="user")
-def fetch_user(id):  # Different function name
-    return {"id": id, "name": "User from Service B"}
+@cache(entity="user", cache_key="user.get_by_id")
+def fetch_user(id_):  # Different function name
+    return {"id": id_, "name": "User from Service B"}
 ```
 
-
-This way both services will share the same cache entries automatically when accessing the same entity ID. 
-
-```python
-# In service A
-@cache(entity="user", scope="entity")
-def get_user(user_id):
-    return {"id": user_id, "name": "User from Service A"}
-
-# In service B
-@cache(entity="user", scope="entity")
-def fetch_user(id):  # Different function name
-    return {"id": id, "name": "User from Service B"}
-```
-
-For backward compatibility, you can also use the explicit `cache_key` approach:
-
-```python
-# Using explicit cache key for complex cases
-@cache(entity="user", cache_key="user.get_by_id", normalize_args=True)
-def get_user_with_extra_data(user_id, include_details=False):
-    return {"id": user_id, "name": "User with details", "details": {...} if include_details else None}
-```
-### Custom Entity Extraction
+### Custom Entity Extraction (TODO)
 
 ```python
 class CustomCache(EntityCache):
-    def _extract_entity_ids(self, result, id_field='id'):
-        ids = super()._extract_entity_ids(result, id_field)
-        
-        # Extract product IDs from order items
-        if isinstance(result, dict) and "items" in result:
-            for item in result["items"]:
-                if "product_id" in item:
-                    ids.add(f"product:{item['product_id']}")
-        
-        return ids
+    def extract_entity_ids():
+        #
 ```
 
 ### Custom Serialization
@@ -211,10 +183,12 @@ Main class for creating cache decorators.
 ```python
 cache = EntityCache(
     backend=None,  # CacheBackend instance (optional, will use in-memory if None)
-    ttl=3600,  # Default TTL in seconds (optional)
+    locked_ttl=3600,  # Default locked TTL in seconds, in case if set, decorator cannot override this value (optional)
+    fail_on_missing_id=True, # Raise an error if an ID cannot be extracted from the result
     serializer=json.dumps,  # Custom serializer function (optional)
     deserializer=json.loads,  # Custom deserializer function (optional)
-    debug=False  # Enable debug logging (optional)
+    debug=False,  # Enable debug logging (optional)
+    enabled=True, # Enable or disable caching (useful for testing or development)
 )
 ```
 
@@ -225,11 +199,10 @@ Decorator for caching function results.
 ```python
 @cache(
     entity="user",  # Type of entity returned (optional)
+    id_key="id",  # Field name or callable resolved to entity ID, not relevant on flat lists (optional)
     cache_key=None,  # Custom cache key for function (optional)
     normalize_args=False,  # Whether to normalize arguments (optional)
-    ttl=None,  # Override default TTL (optional)
-    id_field="id",  # Field name containing entity IDs (optional)
-    scope="function"  # 'function' (default) or 'entity' for cross-function sharing
+    ttl=None,  # Override default TTL, raises error if locked_ttl is set (optional)
 )
 def my_function():
     # ...
@@ -275,7 +248,7 @@ cache = EntityCache(backend=valkey_backend)
 
 The RedisBackend works with any Redis-compatible client (redis-py, valkey, etc) that implements the basic Redis commands. It doesn't directly import Redis, so you can provide any client that follows the Redis interface.
 
-The `key_prefix` parameter allows for more efficient namespacing directly at the backend level, which can improve performance when working with many keys.
+The `key_prefix` parameter allows for more efficient namespacing directly at the backend level
 
 #### 2. In-Memory Backend (great for testing or small applications)
 
@@ -286,9 +259,6 @@ from cacheref import EntityCache, MemoryBackend
 memory_backend = MemoryBackend(key_prefix="app:")
 cache = EntityCache(backend=memory_backend)
 
-# Or with default namespace
-memory_backend = MemoryBackend(key_prefix="cache:")
-cache = EntityCache(backend=memory_backend)
 ```
 
 #### 3. Custom Backends
@@ -346,57 +316,7 @@ logger = logging.getLogger("cacheref")
 logger.setLevel(logging.DEBUG)
 ```
 
-Log levels:
-- **DEBUG**: Detailed operation logs (get, set, cache hits/misses)
-- **INFO**: General cache operations (invalidations, initialization)
-- **WARNING**: Non-critical issues (serialization failures, etc.)
-- **ERROR**: Critical failures (backend unavailable, etc.)
-
-## Performance Optimizations
-
-CacheRef includes several performance optimizations:
-
-### 1. Backend Namespacing
-
-All backends support namespacing through the `key_prefix` parameter:
-
-```python
-# Redis backend with namespace
-redis_backend = RedisBackend(redis_client, key_prefix="app:")
-
-# Memory backend with namespace
-memory_backend = MemoryBackend(key_prefix="testing:")  
-```
-
-Benefits of backend namespacing:
-- Isolated key spaces for different applications
-- Efficient batch operations
-- Transparent key management
-- Consistent interface across backends
-
-Both Redis and Memory backends automatically handle prefixing and stripping of prefixes, making namespacing fully transparent to application code.
-
-### 2. Additional Optimizations
-
-- **Efficient Pipeline Usage**: Redis operations are automatically batched through pipelines
-- **Lazy Logging**: Debug logging only occurs when debug mode is enabled
-- **Automatic Type Conversion**: Redis backends handle byte/string conversions automatically
-- **msgspec Integration**: Uses fast msgspec.msgpack serialization when available
-
 ## Development and Testing
-
-### Docker Setup
-
-The repository includes a Docker Compose configuration for easy development and testing with Redis:
-
-```bash
-# Start Redis and Redis Commander UI
-docker-compose up -d
-
-# Access Redis Commander UI at http://localhost:8081
-# Username: admin
-# Password: refcache123
-```
 
 ### Running Tests
 

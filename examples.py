@@ -10,7 +10,7 @@ redis_client = Redis(host='localhost', port=6379, db=0)
 redis_backend = RedisBackend(redis_client, key_prefix="app:")
 
 # Create cache with the Redis backend
-cache = EntityCache(backend=redis_backend, ttl=3600)
+cache = EntityCache(backend=redis_backend,locked_ttl=3600)
 
 @cache(entity="user")
 def get_user(user_id):
@@ -30,7 +30,7 @@ valkey_client = Client(host='localhost', port=6379)
 valkey_backend = RedisBackend(valkey_client, key_prefix="app:")
 
 # Create cache with the ValKey backend
-cache = EntityCache(backend=valkey_backend, ttl=3600)
+cache = EntityCache(backend=valkey_backend,locked_ttl=3600)
 
 @cache(entity="product")
 def get_product(product_id):
@@ -155,9 +155,9 @@ from cacheref import EntityCache
 class CustomCache(EntityCache):
     """Extended cache with custom entity extraction."""
 
-    def _extract_entity_ids(self, result, id_field='id'):
+    def _extract_entity_ids(self, result, id_key='id'):
         """Extract multiple types of entity IDs from the result."""
-        ids = super()._extract_entity_ids(result, id_field)
+        ids = super()._extract_entity_ids(result, id_key)
 
         try:
             # Extract order item IDs
@@ -180,7 +180,7 @@ class CustomCache(EntityCache):
 
 
 # Example 8: Using custom ID fields
-@cache(entity="customer", id_field="customer_id")
+@cache(entity="customer", id_key="customer_id")
 def get_customer(customer_id):
     """Get a customer using a non-standard ID field."""
     # Your actual database query here
@@ -210,7 +210,7 @@ from cacheref import EntityCache, MemoryBackend
 memory_backend = MemoryBackend(key_prefix="default:")
 cache = EntityCache(
     backend=memory_backend,
-    ttl=3600
+   locked_ttl=3600
 )
 
 @cache()

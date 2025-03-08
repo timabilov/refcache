@@ -15,19 +15,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-  
-  redis-commander:
-    image: rediscommander/redis-commander:latest
-    container_name: refcache-redis-ui
-    environment:
-      - REDIS_HOSTS=local:redis:6379
-      - HTTP_USER=admin
-      - HTTP_PASSWORD=refcache123
-    ports:
-      - "8081:8081"
-    depends_on:
-      - redis
-    restart: unless-stopped
 
 volumes:
   redis-data:

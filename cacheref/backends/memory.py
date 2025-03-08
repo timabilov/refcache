@@ -87,7 +87,7 @@ class MemoryBackend(CacheBackend):
 
     def set(self, key: str, value: str, expire: Optional[int] = None) -> bool:
         """Set a value in the in-memory cache with optional expiration."""
-        logger.debug("Memory SET %s", key)
+        logger.debug("Memory SET %s TTL %s", key, expire)
         prefixed_key = self._prefix_key(key)
         with self.lock:
             self.data[prefixed_key] = value
@@ -97,7 +97,8 @@ class MemoryBackend(CacheBackend):
 
     def setex(self, key: str, expiration_seconds: int, value: str) -> bool:
         """Set a value with expiration time."""
-        logger.debug("Memory SETEX %s", key)
+        # donot log because internal .set is used here anyway
+        # logger.debug("Memory SETEX %s", key)
         return self.set(key, value, expiration_seconds)
 
     def delete(self, *keys: str) -> int:
@@ -115,6 +116,15 @@ class MemoryBackend(CacheBackend):
                 if prefixed_key in self.expires:
                     del self.expires[prefixed_key]
         return count
+
+    def ttl(self, key: str) -> int:
+        """Get the time-to-live for a key."""
+        logger.debug("Memory TTL %s", key)
+        prefixed_key = self._prefix_key(key)
+        with self.lock:
+            if prefixed_key in self.expires:
+                return max(0, int(self.expires[prefixed_key] - time.time()))
+            return -1
 
     def keys(self, pattern: str) -> List[str]:
         """Find keys matching pattern using fnmatch."""

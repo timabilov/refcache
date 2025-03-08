@@ -99,6 +99,11 @@ class RedisBackend(CacheBackend):
         logger.debug("Redis SADD %s %s", key, values)
         return self.client.sadd(self._prefix_key(key), *values)
 
+    def ttl(self, key: str) -> int:
+        """Get the time-to-live for a key."""
+        logger.debug("Redis TTL %s", key)
+        return self.client.ttl(self._prefix_key(key))
+
     def smembers(self, key: str) -> Set[str]:
         """Get all members of a set."""
         logger.debug("Redis SMEMBERS %s", key)
@@ -135,9 +140,7 @@ class RedisBackend(CacheBackend):
             multi = self.client.multi()
             return RedisPrefixPipeline(multi, self.key_prefix)
         else:
-            # Fallback: simple wrapper that just executes commands immediately
-            logger.warning("Redis client doesn't support pipeline, using fake pipeline")
-            return FakePipeline(self.client, self.key_prefix)
+            logger.error("Redis client doesn't support pipeline, cnanot use batch operations")
 
 
 class RedisPrefixPipeline:
@@ -182,50 +185,3 @@ class RedisPrefixPipeline:
     def execute(self):
         """Execute the pipeline commands."""
         return self.pipeline.execute()
-
-
-class FakePipeline:
-    """Fallback pipeline implementation when native pipeline is not available."""
-
-    def __init__(self, redis: RedisClient, key_prefix: str = ""):
-        """
-        Initialize a fake pipeline that simulates Redis pipelining.
-
-        Args:
-            redis: Redis client
-            key_prefix: Prefix to add to all keys
-        """
-        self.redis = redis
-        self.commands = []
-        self.key_prefix = key_prefix or ""
-
-    def _prefix_key(self, key: str) -> str:
-        """Add prefix to key if configured."""
-        if not self.key_prefix:
-            return key
-        return f"{self.key_prefix}{key}"
-
-    def __getattr__(self, name: str):
-        """
-        Create a method that queues commands for later execution.
-        For operations taking a key as first argument, prefix the key.
-        """
-        def method(*args: Any, **kwargs: Any) -> 'FakePipeline':
-            # Apply prefix to key if first arg is a string
-            if args and isinstance(args[0], str):
-                args = list(args)
-                args[0] = self._prefix_key(args[0])
-                args = tuple(args)
-
-            self.commands.append((name, args, kwargs))
-            return self
-        return method
-
-    def execute(self) -> List[Any]:
-        """Execute all queued commands and return their results."""
-        results = []
-        for cmd, args, kwargs in self.commands:
-            method = getattr(self.redis, cmd)
-            results.append(method(*args, **kwargs))
-        self.commands = []
-        return results

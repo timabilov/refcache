@@ -10,7 +10,29 @@ import hashlib
 import inspect
 import json
 import logging
-from typing import Any, Callable, Dict, Literal, Optional, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Protocol, Tuple, Type, TypeVar, Union, cast
+from uuid import UUID
+
+from .backends.base import CacheBackend
+from .backends.memory import MemoryBackend
+from .idextractor import extract_entity_ids
+from .utils import validate_non_collection_class
+
+T = TypeVar('T')
+KeyType = Union[str, int]
+IdExtractorType = Union[str, Callable[[Any], KeyType], Tuple[str, Callable[[Any], KeyType]]]
+
+# cached function signature and metadata attributes
+class CacheableFunction(Protocol[T]):
+    __call__: Callable[..., T]
+    cache_key: Optional[str]
+    entity: Optional[str]
+    scope: Optional[str]
+    ttl: Optional[int]
+    normalize_args: bool
+    id_key: Optional[IdExtractorType]
+    caught_exceptions: List[Exception]
+
 
 try:
     import msgspec.msgpack
@@ -18,11 +40,13 @@ try:
 except ImportError:
     HAS_MSGSPEC = False
 
-from .backends.base import CacheBackend
-from .backends.memory import MemoryBackend
+
 
 # Setup logger
 logger = logging.getLogger("cacheref")
+
+
+DEFAULT_TTL = 300
 
 
 class EntityCache:
@@ -38,20 +62,26 @@ class EntityCache:
     def __init__(
         self,
         backend: Optional[CacheBackend] = None,
-        ttl: int = 3600,
+        locked_ttl: Optional[int] = None,
+        fail_on_missing_id: bool = True,
         serializer: Optional[Callable] = None,
         deserializer: Optional[Callable] = None,
         debug: bool = False,
+        global_supported_id_types: Optional[Tuple] = (int, str, UUID),
+        enabled: bool = True,
     ):
         """
         Initialize the cache decorator.
 
         Args:
             backend: CacheBackend instance (if not provided, will use in-memory backend with default prefix)
-            ttl: Default Time-to-live in seconds (default: 1 hour)
+            locked_ttl: If this locked TTL is set, it will not allow arbitrary TTL for functions
+                        This prevents unnecessary estimations for reverse index which can be costly (default: None)
+            fail_on_missing_id: Raise an error if an ID cannot be extracted from the result
             serializer: Function to serialize data (default: msgspec.msgpack.encode if available, or json.dumps)
             deserializer: Function to deserialize data (default: msgspec.msgpack.decode if available, or json.loads)
             debug: Enable debug logging
+            enabled: Enable or disable caching (useful for testing or development)
         """
         # Set up logger
         if debug:
@@ -68,9 +98,23 @@ class EntityCache:
             logger.info("No backend provided, using in-memory backend")
             backend = MemoryBackend(key_prefix="cache:")
 
+        self.enabled = enabled
+        if not self.enabled:
+            logger.warning("Cache is disabled, all functions will run normally")
         self.backend = backend
-        self.ttl = ttl
+        self.ttl: Optional[int] = locked_ttl
+        if not isinstance(global_supported_id_types, (list, tuple)):
+            raise ValueError("Failed to initialize refcache. global_supported_id_types must be a list or tuple")
 
+        self.supported_primitive_id_types = global_supported_id_types
+        self.fail_on_missing_id = fail_on_missing_id
+        if not self.fail_on_missing_id:
+            logger.warning("fail_on_missing_id is disabled, missing IDs will be ignored")
+
+        for id_type in self.supported_primitive_id_types:
+            validate_non_collection_class(id_type, 'EntityCache.global_supported_id_types')
+
+        self.reverse_index_ttl_gap = 300 # 5 minutes longer than the function TTL
         # Set serializer/deserializer with msgspec.msgpack as default if available
         if serializer is None:
             if HAS_MSGSPEC:
@@ -97,10 +141,11 @@ class EntityCache:
     def __call__(
         self,
         entity: Optional[str] = None,
+        id_key: IdExtractorType = 'id',
         cache_key: Optional[str] = None,
         normalize_args: bool = False,
         ttl: Optional[int] = None,
-        id_field: str = 'id',
+        supported_id_types=(str, int, UUID),
         scope: Literal['function', 'entity'] = 'function',
     ):
         """
@@ -109,24 +154,48 @@ class EntityCache:
         Args:
             entity: The primary entity type this function deals with
                   (e.g., 'user', 'product')
+            id_key: Name of the field or callable resolved to entity ID key, supports iterable
+                    that applied in order until parsed, default 'id'
             cache_key: Optional custom key name for the cache to unify caching
                       across services or functions
             normalize_args: Whether to normalize argument values for consistent
                            cache keys across services
             ttl: Optional override for TTL (defaults to instance TTL)
-            id_field: Name of the field containing entity IDs (default: 'id')
-            scope: Determines the scope of cache sharing, with two possible values:
+            supported_id_types: The supported primitive ID types to extract from,
+                                Strongly recommend using 'global_supported_id_types' instead
+            scope (deprecated): Determines the scope of cache sharing, with two possible values:
                   - 'function' (default): Function first caching with no cache sharing between same entity signatures
                   - 'entity': Entity first caching - different functions with same entity and arguments share cache
 
         Returns:
             Decorated function
         """
-        effective_ttl = ttl if ttl is not None else self.ttl
 
-        def decorator(func):
+        supported_id_types = supported_id_types or self.supported_primitive_id_types
+
+        def decorator(func: Callable[..., T]) -> CacheableFunction[T]:
+            func_signature_log =  f'function({func.__module__}.{func.__name__}) @{self.__class__.__name__}()'
+            [
+                validate_non_collection_class(
+                    id_type, f'{func_signature_log} supported_id_types'
+                ) for id_type in supported_id_types
+            ]
+            if ttl and self.ttl:
+                raise ValueError(f"Cannot set custom TTL in {func_signature_log} when locked TTL is set on instance "\
+                                 "level, please either remove locked ttl "\
+                                 "or custom ttl, Read more about locked ttl in the documentation")
+
+            effective_ttl = ttl if ttl is not None else self.ttl
+            # if none was set, use default TTL,
+            # TODO make this flexible/configurable
+            # relax locked_ttl restrictions and auto handle ttl optimizations for ttl tracking
+            if not effective_ttl:
+                effective_ttl = DEFAULT_TTL
             @functools.wraps(func)
-            def wrapper(*args, **kwargs):
+            def wrapper(*args: Any, **kwargs: Any) -> T:
+
+                if not self.enabled:
+                    return func(*args, **kwargs)
                 # Get normalized parameters for the key
                 processed_args, processed_kwargs = self._normalize_params(
                     func, args, kwargs, normalize=normalize_args
@@ -155,61 +224,98 @@ class EntityCache:
                 except Exception as e:
                     logger.warning("Cache get operation failed: %s", e)
 
-                # Call the function
+                # Call the function, raise error if it fails
                 result = func(*args, **kwargs)
-
-                try:
-                    # Cache the result
-                    logger.debug("Caching result for function: %s", func.__name__)
-                    try:
-                        serialized_result = self.serializer(result)
-                    except Exception as e:
-                        logger.warning("Failed to serialize result: %s", e)
-                        return result
-
-                    try:
-                        pipeline = self.backend.pipeline()
-                        pipeline.setex(
-                            effective_func_key,
-                            effective_ttl,
-                            serialized_result
-                        )
-
-                        # Register this key with entity index if an entity type is specified
-                        if entity and result:
-                            # Get any entity IDs from the results
-                            entity_ids = self._extract_entity_ids(result, id_field)
-
-                            if entity_ids:
-                                logger.debug("[Reverse index] Found entity IDs: %s", entity_ids)
-                                for entity_id in entity_ids:
-                                    # Create a direct index from entity to cache keys
-                                    # Format: entity:type:id for consistent, clear naming
-                                    entity_key = f"entity:{entity}:{entity_id}"
-                                    pipeline.sadd(entity_key, effective_func_key)
-
-                                    # Set TTL on the entity index slightly longer than the cache TTL
-                                    # This helps prevent orphaned indices
-                                    pipeline.expire(entity_key, effective_ttl + 300)  # 5 minutes longer
-
-                        pipeline.execute()
-                        logger.debug("[Reverse index] recached successfully")
-                    except Exception as e:
-                        logger.warning("Cache backend operations failed: %s", e)
-                except Exception as e:
-                    # Log error but don't fail the function if caching fails
-                    logger.error("Caching error: %s", e)
+                self._cache(
+                    result, func, effective_func_key, effective_ttl, supported_id_types,
+                    entity=entity, id_key=id_key
+                )
 
                 return result
+            typed_wrapper = cast(CacheableFunction[T], wrapper)
             # Store all key construction parameters on the wrapper
             # This ensures consistency between decorator usage and direct key construction
-            wrapper.cache_key = cache_key
-            wrapper.entity = entity
-            wrapper.scope = scope
-            wrapper.normalize_args = normalize_args
-            wrapper.id_field = id_field
-            return wrapper
+            typed_wrapper.cache_key = cache_key
+            typed_wrapper.entity = entity
+            typed_wrapper.scope = scope
+            typed_wrapper.ttl = ttl or self.ttl
+            typed_wrapper.normalize_args = normalize_args
+            typed_wrapper.id_key = id_key
+            typed_wrapper.caught_exceptions = []
+            return typed_wrapper
         return decorator
+
+    def _cache(self, fn_result: Any, func: Callable,
+               effective_func_key: str, effective_ttl: int,
+               supported_id_types: Tuple[Type],
+               entity: Optional[str] = None, id_key: IdExtractorType = str('id')) -> None:
+        """
+        Cache the result of a function call.
+
+        Besides caching the result, this method also registers the function/signature to entity IDs cache index.
+        """
+        try:
+            # Cache the result
+            logger.debug("Caching result for function: %s", func.__name__)
+            try:
+                serialized_result = self.serializer(fn_result)
+            except Exception as e:
+                logger.warning("Failed to serialize result: %s", e)
+                return fn_result
+
+            try:
+                pipeline = self.backend.pipeline()
+                pipeline.setex(
+                    effective_func_key,
+                    effective_ttl,
+                    serialized_result
+                )
+                # Register this key with entity index if an entity type is specified
+                if entity and fn_result:
+                    logger.debug("[Reverse index] Recaching references for %s", entity)
+                    # Get any entity IDs from the results
+                    entity_ids = extract_entity_ids(func, fn_result, id_key,
+                                                    supported_id_types=supported_id_types,
+                                                    fail_on_missing_id=self.fail_on_missing_id)
+
+                    # First pipeline to get all current reverse index TTLs to estimate new ttl
+                    ttl_pipeline = self.backend.pipeline()
+                    entity_keys = []
+
+                    for entity_id in entity_ids:
+                        entity_key = f"entity:{entity}:{entity_id}"
+                        entity_keys.append(entity_key)
+                        ttl_pipeline.ttl(entity_key)
+
+                    # Get all TTLs in one batch operation
+                    entity_ttls = ttl_pipeline.execute()
+
+                    if entity_ids:
+                        logger.debug("[Reverse index] Found entities ID: %s", entity_ids)
+                        for i, entity_id in enumerate(entity_ids):
+                            # Create a direct index from entity to cache keys
+                            # Format: entity:type:id for consistent, clear naming
+                            entity_key = f"entity:{entity}:{entity_id}"
+                            pipeline.sadd(entity_key, effective_func_key)
+
+                            # Set TTL on the entity index *if* it is higher than the
+                            # current entity TTL + gap for reverse index TTL
+                            # to not undermine other signature records ttl
+                            # this helps prevent orphaned indices
+                            current_ttl = entity_ttls[i]
+                            if current_ttl < 0 or effective_ttl + self.reverse_index_ttl_gap > current_ttl:
+                                # prolong to self.reverse_index_ttl_gap[5] minute longer than function ttl by default
+                                pipeline.expire(entity_key, effective_ttl + self.reverse_index_ttl_gap)
+                            else:
+                                logger.debug("[Reverse index] Skipping TTL update for %s current TTL %s > new TTL %s",
+                                             entity_key, current_ttl, effective_ttl + self.reverse_index_ttl_gap)
+                    logger.debug("[Reverse index] Recache ready to execute")
+                pipeline.execute()
+            except Exception as e:
+                logger.warning("Cache backend operations failed: %s", e, exc_info=True)
+        except Exception as e:
+            # Log error but don't fail the function if caching fails
+            logger.error("Caching error: %s", e)
 
     def _pipeline(self):
         """Get a pipeline/transaction object from the backend."""
@@ -297,7 +403,7 @@ class EntityCache:
             return value
 
     def construct_key(self, func, cache_key: Optional[str] = None, entity: Optional[str] = None,
-                    scope: str = 'function', args: Tuple = (), kwargs: Dict = None) -> str:
+                    scope: str = 'function', args: Tuple = (), kwargs: Optional[Dict] = None) -> str:
         """
         Construct a cache key based on function, entity, scope, and arguments.
 
@@ -367,35 +473,6 @@ class EntityCache:
 
         return key
 
-    def _extract_entity_ids(self, result, id_field='id'):
-        """
-        Extract entity IDs from the result in various formats.
-
-        Args:
-            result: The data to extract IDs from
-            id_field: The field name containing the ID (default: 'id')
-        """
-        ids = set()
-
-        try:
-            # Handle single object
-            if isinstance(result, dict) and id_field in result:
-                ids.add(result[id_field])
-
-            # Handle list of objects
-            elif isinstance(result, (list, tuple)):
-                for item in result:
-                    if isinstance(item, dict) and id_field in item:
-                        ids.add(item[id_field])
-
-            # Handle simple ID value
-            elif isinstance(result, (int, str)):
-                ids.add(result)
-        except Exception:
-            # If any error occurs during extraction, just continue
-            pass
-
-        return ids
 
     def invalidate_entity(self, entity: str, entity_id: Any):
         """

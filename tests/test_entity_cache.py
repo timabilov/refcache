@@ -1,9 +1,12 @@
 """Tests for the EntityCache core functionality."""
 
+import datetime
 import json
 import time
+from unittest import mock
 
 import msgspec.msgpack
+from freezegun import freeze_time
 from msgspec import msgpack
 
 from cacheref import EntityCache, MemoryBackend
@@ -11,12 +14,12 @@ from cacheref import EntityCache, MemoryBackend
 
 def test_entity_cache_init():
     """Test EntityCache initialization with defaults."""
-    cache = EntityCache()
-    assert isinstance(cache, EntityCache)
-    assert isinstance(cache.backend, MemoryBackend)
-    assert cache.ttl == 3600
-    assert cache.serializer == msgpack.encode
-    assert cache.deserializer == msgpack.decode
+    entity_cache: EntityCache = EntityCache()
+    assert isinstance(entity_cache, EntityCache)
+    assert isinstance(entity_cache.backend, MemoryBackend)
+    assert entity_cache.ttl is None
+    assert entity_cache.serializer == msgpack.encode
+    assert entity_cache.deserializer == msgpack.decode
 
 
 def test_get_cache_key(memory_cache):
@@ -69,32 +72,32 @@ def test_entity_cache_custom_init():
     def custom_deserializer(x):
         return json.loads(x)
 
-    cache = EntityCache(
+    entity_cache = EntityCache(
         backend=backend,
-        ttl=60,
+       locked_ttl=60,
         serializer=custom_serializer,
         deserializer=custom_deserializer,
         debug=True
     )
 
-    assert cache.backend == backend
-    assert cache.ttl == 60
-    assert cache.serializer == custom_serializer
-    assert cache.deserializer == custom_deserializer
+    assert entity_cache.backend == backend
+    assert entity_cache.ttl == 60
+    assert entity_cache.serializer == custom_serializer
+    assert entity_cache.deserializer == custom_deserializer
 
 
 def test_entity_cache_default_serializer():
     """Test default serializer selection."""
 
-    cache = EntityCache()
+    entity_cache = EntityCache()
 
-    assert cache.serializer == msgspec.msgpack.encode
-    assert cache.deserializer == msgspec.msgpack.decode
+    assert entity_cache.serializer == msgspec.msgpack.encode
+    assert entity_cache.deserializer == msgspec.msgpack.decode
 
     # Test round-trip serialization
     data = {"id": 123, "name": "Test", "values": [1, 2, 3]}
-    serialized = cache.serializer(data)
-    deserialized = cache.deserializer(serialized)
+    serialized = entity_cache.serializer(data)
+    deserialized = entity_cache.deserializer(serialized)
     assert deserialized == data
 
 
@@ -314,7 +317,7 @@ def test_mixed_entity_and_plain_caching(memory_cache):
         return {"user_id": user_id, "logins": 10, "last_seen": "2023-01-01"}
 
     # Entity-tracked function with same entity type but scope='function'
-    @memory_cache(entity="user", scope="function")
+    @memory_cache(entity="user", scope="function", id_key="user_id")
     def get_user_preferences(user_id):
         nonlocal call_count
         call_count += 1
@@ -343,21 +346,21 @@ def test_mixed_entity_and_plain_caching(memory_cache):
     get_user_stats(1)
     assert call_count == 4
 
-    # scope "function" should still use cache despite having entity
+    # Another Entity-tracked function. Invalidation expected
     get_user_preferences(1)
-    assert call_count == 4
+    assert call_count == 5
 
     # Invalidate a specific function - should only affect that function
     memory_cache.invalidate_func(get_user_stats)
 
     # This function should re-execute
     get_user_stats(1)
-    assert call_count == 5
+    assert call_count == 6
 
     # Other functions should still use cache
     get_user(1)
     get_user_preferences(1)
-    assert call_count == 5
+    assert call_count == 6
 
     # Invalidate all - should affect all functions
     memory_cache.invalidate_all()
@@ -366,8 +369,89 @@ def test_mixed_entity_and_plain_caching(memory_cache):
     get_user(1)
     get_user_stats(1)
     get_user_preferences(1)
-    assert call_count == 8
+    assert call_count == 9
 
+
+def test_entity_scope_cache(memory_cache):
+    """Test using both entity-tracked and plain caching with checking global scope."""
+    call_count = 0
+
+    # Function with entity tracking
+    @memory_cache(entity="user", scope="entity")
+    def get_user(user_id):
+        nonlocal call_count
+        call_count += 1
+        return {"id": user_id, "name": f"User {user_id}"}
+
+    # Function with plain caching (no entity tracking)
+    @memory_cache()
+    def get_user_stats(user_id):
+        nonlocal call_count
+        call_count += 1
+        return {"user_id": user_id, "logins": 10, "last_seen": "2023-01-01"}
+
+    # Entity-tracked function with same entity type but scope='entity'
+    # meaning that
+    @memory_cache(entity="user", scope="entity", id_key="user_id")
+    def get_user_preferences(user_id):
+        nonlocal call_count
+        call_count += 1
+        return {"user_id": user_id, "theme": "dark", "notifications": True}
+
+    # Call all functions, last one should be cached because of entity + id link as key
+    get_user(1)
+    get_user_stats(1)
+    get_user_preferences(1)
+    assert call_count == 2
+
+    # Call again - all should be cached
+    get_user(1)
+    get_user_stats(1)
+    get_user_preferences(1)
+    assert call_count == 2
+
+    # Invalidate entity - should only affect entity-tracked functions!
+    memory_cache.invalidate_entity("user", 1)
+
+    # Entity-tracked but entity scope function should re-execute and cache entity
+    get_user(1)
+    assert call_count == 3
+
+    # Plain cache functions should still use cache
+    get_user_stats(1)
+    assert call_count == 3
+
+    # Another Entity-tracked function. but because of entity scope
+    # it should not re-execute because of entity + user_id link link hit
+    get_user_preferences(1)
+    assert call_count == 3
+
+    # Invalidate a specific function - should only affect that function
+    memory_cache.invalidate_func(get_user_stats)
+
+    # This function should re-execute
+    get_user_stats(1)
+    assert call_count == 4
+
+    # Other functions should still use cache
+    get_user(1)
+    get_user_preferences(1)
+    assert call_count == 4
+
+    # Invalidate all - should affect all functions
+    memory_cache.invalidate_all()
+
+    # All functions should re-execute except last because of user + user_id link
+    get_user(1)
+    get_user_stats(1)
+    get_user_preferences(1)
+    assert call_count == 6
+
+    # last one id is changed so all should re-execute
+    get_user(1)
+    get_user_stats(1)
+    get_user_preferences(2)
+    assert call_count == 7
 
 def test_plain_cache_custom_key_name(memory_cache):
     """Test using a custom cache_key with plain caching."""
@@ -469,12 +553,75 @@ def test_entity_cache_ttl(memory_cache):
     assert call_count == 1
 
     # Wait for TTL to expire
-    time.sleep(0.4)
+    original_time = datetime.datetime.now()
+    with freeze_time(original_time + datetime.timedelta(seconds=0.4)):
+        # Call again - should re-execute
+        result3 = test_func(1)
+        assert result3 == 2
+        assert call_count == 2
 
-    # Call again - should re-execute
-    result3 = test_func(1)
-    assert result3 == 2
-    assert call_count == 2
+
+def test_entity_reverse_cache_prolong_ttl(memory_cache):
+    """We test that the reverse cache TTL is extended when the cache is accessed."""
+
+    call_count = 0
+    entity = "user"
+    entity_id = 1
+    now = datetime.datetime.now()
+    with freeze_time(now):
+        @memory_cache(entity=entity, ttl=10)
+        def test_func(a):
+            nonlocal call_count
+            call_count += 1
+            return {"id": a, "name": f"User {a}"}
+
+        @memory_cache(entity=entity, ttl=90)
+        def test_func_2(a):
+            nonlocal call_count
+            call_count += 1
+            return {"id": a, "name": f"User {a}"}
+        # First call should execute the function and set
+        # test_func.ttl + memory_cache.reverse_index_ttl_gap ttl for the reverse index
+        test_func(entity_id)
+        assert call_count == 1
+        entity_key = f"entity:{entity}:{entity_id}"
+        assert memory_cache.backend.ttl(entity_key) == test_func.ttl + memory_cache.reverse_index_ttl_gap == 310
+        # now it should prolong the ttl for same entity
+        test_func_2(entity_id)
+        assert call_count == 2
+        entity_key = f"entity:{entity}:{entity_id}"
+        assert memory_cache.backend.ttl(entity_key) == test_func_2.ttl + memory_cache.reverse_index_ttl_gap == 390
+
+def test_entity_reverse_cache_unchanged_ttl(redis_cache):
+    """We test that the reverse cache entity TTL is not affected because of short new TTL."""
+    call_count = 0
+    entity = "user"
+    entity_id = 1
+    now = datetime.datetime.now()
+    with freeze_time(now):
+        @redis_cache(entity=entity, ttl=90)
+        def test_func(a):
+            nonlocal call_count
+            call_count += 1
+            return {"id": a, "name": f"User {a}"}
+
+        @redis_cache(entity=entity, ttl=10)
+        def test_func_2(a):
+            nonlocal call_count
+            call_count += 1
+            return {"id": a, "name": f"User {a}"}
+        # First call should execute the function and set
+        # test_func.ttl + memory_cache.reverse_index_ttl_gap ttl for the reverse index
+        test_func(entity_id)
+        assert call_count == 1
+        entity_key = f"entity:{entity}:{entity_id}"
+        assert redis_cache.backend.ttl(entity_key) == test_func.ttl + redis_cache.reverse_index_ttl_gap == 390
+        # now it should stick to old ttl for same entity, to not undermine test_func ttl record for reverse index
+        test_func_2(entity_id)
+        assert call_count == 2
+        entity_key = f"entity:{entity}:{entity_id}"
+        assert redis_cache.backend.ttl(entity_key) == test_func.ttl + redis_cache.reverse_index_ttl_gap == 390
+
 
 
 def test_entity_cache_function_ttl_override(memory_cache):
@@ -497,20 +644,20 @@ def test_entity_cache_function_ttl_override(memory_cache):
     assert result2 == 2
     assert call_count == 1
 
-    # Wait for TTL to expire
-    time.sleep(0.4)
 
-    # Call again - should re-execute
-    result3 = test_func(1)
-    assert result3 == 2
-    assert call_count == 2
+    original_time = time.time()
+    with mock.patch('time.time', return_value=original_time + 0.4):
+        # Call again - should re-execute
+        result3 = test_func(1)
+        assert result3 == 2
+        assert call_count == 2
 
 
-def test_entity_cache_custom_id_field(memory_cache):
+def test_entity_cache_custom_id_key(memory_cache):
     """Test using a custom ID field for entity tracking."""
     call_count = 0
 
-    @memory_cache(entity="customer", id_field="customer_id")
+    @memory_cache(entity="customer", id_key="customer_id")
     def get_customer(customer_id):
         nonlocal call_count
         call_count += 1
@@ -562,6 +709,32 @@ def test_entity_cache_extraction_from_list(memory_cache):
     users_refetch = get_users()
     assert len(users_refetch) == 3
     assert call_count == 2
+
+
+def test_entity_cache_extraction_wrong_non_supported_key(memory_cache, caplog):
+    """Test extracting entity IDs from a list of objects."""
+    call_count = 0
+
+    @memory_cache(entity="user", supported_id_types=(str, int))
+    def get_users():
+        nonlocal call_count
+        call_count += 1
+        return [
+            {"id": [1, 2, 3], "name": "User 1"},
+            {"id": 2, "name": "User 2"},
+            {"id": 3, "name": "User 3"}
+        ]
+
+    # First call should execute the function
+    users = get_users()
+    assert len(users) == 3
+    assert call_count == 1
+
+    # Second call should not use cache, because caching failed, but function was executed
+    users_again = get_users()
+    assert len(users_again) == 3
+    assert call_count == 2
+    assert "extracted_id=[1, 2, 3] got unsupported ID value <class 'list'>" in caplog.text
 
 
 def test_convenience_invalidation_methods(memory_cache):
@@ -621,3 +794,5 @@ def test_convenience_invalidation_methods(memory_cache):
     multiply(2, 3)
     multiply(4, 5)
     assert call_count == 1
+
+

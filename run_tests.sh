@@ -2,7 +2,7 @@
 set -e
 
 # Start Redis and Redis UI with docker-compose
-echo "Starting Redis and Redis UI..."
+echo "Starting Redis and"
 docker-compose up -d
 
 # Wait for Redis to be ready
@@ -13,13 +13,6 @@ do
   sleep 1
 done
 
-echo "=========================================="
-echo "Test environment is ready!"
-echo "Redis is running on localhost:6379"
-echo "Redis Web UI is running on http://localhost:8081"
-echo "Username: admin"
-echo "Password: refcache123"
-echo "=========================================="
 
 echo "Running tests..."
 
@@ -36,7 +29,4 @@ fi
 # Uncomment the following line if you want Redis to stop after tests
 # docker-compose down
 
-echo "Tests completed!"
-echo ""
-echo "Redis and Redis UI are still running. To stop them:"
-echo "docker-compose down"
+docker-compose down

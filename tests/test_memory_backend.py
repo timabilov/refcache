@@ -1,6 +1,9 @@
 """Tests for the MemoryBackend implementation."""
 
+import datetime
 import time
+
+from freezegun import freeze_time
 
 from cacheref import MemoryBackend
 
@@ -39,14 +42,16 @@ def test_memory_backend_expiry():
     assert backend.get("key1") == "value1"
 
     # Wait for expiration
-    time.sleep(0.3)
-    assert backend.get("key1") is None
+    now = datetime.datetime.now()
+    with freeze_time(now + datetime.timedelta(seconds=0.3)):
+        assert backend.get("key1") is None
 
     # Test setex directly
     backend.setex("key2", 0.3, "value2")
     assert backend.get("key2") == "value2"
-    time.sleep(0.4)
-    assert backend.get("key2") is None
+    now = datetime.datetime.now()
+    with freeze_time(now + datetime.timedelta(seconds=0.4)):
+        assert backend.get("key2") is None
 
 
 def test_memory_backend_delete():
@@ -94,6 +99,7 @@ def test_memory_backend_keys():
     # Match with expiry
     backend.set("expires:key", "value", expire=0.2)
     assert "expires:key" in backend.keys("expires:*")
+    # try sleep just as a case
     time.sleep(0.3)
     assert "expires:key" not in backend.keys("expires:*")
 
@@ -147,6 +153,7 @@ def test_memory_backend_expire():
     # Check expiry works
     assert backend.get("key1") == "value1"
     assert len(backend.smembers("set1")) == 1
-    time.sleep(0.3)
-    assert backend.get("key1") is None
-    assert len(backend.smembers("set1")) == 0
+    original_time = datetime.datetime.now()
+    with freeze_time(original_time + datetime.timedelta(seconds=0.3)):
+        assert backend.get("key1") is None
+        assert len(backend.smembers("set1")) == 0
