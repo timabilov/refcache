@@ -6,6 +6,7 @@
 
 This ensures fresh records with real-time update & synchronization support.
 
+## Table of Contents
 
 - [Features](#features)
 - [Installation](#installation)
