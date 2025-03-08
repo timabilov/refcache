@@ -39,7 +39,7 @@ jobs:
 
           # Wait for Redis to be ready
           echo "Waiting for Redis to be ready..."
-          until docker-compose exec -T redis redis-cli ping | grep -q PONG
+          until docker compose exec -T redis redis-cli ping | grep -q PONG
           do
           echo "Redis not ready yet, retrying..."
           sleep 1
