@@ -1,0 +1,76 @@
+name: Build
+
+# Trigger the workflow on push or pull requests to the main branch
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Set up Python (Poetry will use this version)
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'  # Match your Poetry project's Python version
+
+      # Install Poetry
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH  # Add Poetry to PATH
+
+      # Install dependencies with Poetry
+      - name: Install project dependencies
+        run: |
+          poetry install --with dev 
+
+      # Run tests with coverage using Poetry
+      - name: Run pytest with coverage
+        run: |
+          poetry run pytest tests/ --cov=./ --cov-report=xml --cov-report=term-missing -v
+        env:
+          COVERAGE_FILE: .coverage
+
+      # Store the coverage XML file as an artifact (optional)
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+      # Extract coverage percentage for Markdown integration
+      - name: Extract coverage percentage
+        id: coverage
+        run: |
+          poetry run coverage report --format=markdown > coverage.md
+          TOTAL_COVERAGE=$(poetry run coverage report | grep TOTAL | awk '{print $4}' | sed 's/%//')
+          echo "TOTAL_COVERAGE=$TOTAL_COVERAGE" >> $GITHUB_ENV
+          echo "Generated coverage percentage: $TOTAL_COVERAGE%"
+
+      # Update README.md with coverage badge
+      - name: Update README with coverage badge
+        run: |
+          BADGE_URL="https://img.shields.io/badge/coverage-${{ env.TOTAL_COVERAGE }}%25-brightgreen"
+          sed -i "/<!-- COVERAGE_BADGE -->/c\<!-- COVERAGE_BADGE -->\n[![Coverage]($BADGE_URL)](https://github.com/${{ github.repository }})" README.md
+        if: github.event_name == 'push'  # Only update on push, not PR
+
+      # Commit and push changes to README.md (if modified)
+      - name: Commit README changes
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add README.md
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update coverage badge in README"
+          git push
+        if: github.event_name == 'push'  # Only commit on push, not PR
