@@ -248,19 +248,35 @@ This library offers the same standard read-through caching decorator for your fu
 
 ### Cross-Service Caching
 
-To access same cache results across apps use common cache_key. On update of particular user cache is invalidated once.
+Nothing special needed here. As an example, given that you use same prefix in all of your services, on update of the particular user - cache is able to identify all function calls that it needs to invalidate for a given user.
+
+
 
 ```python
 # In service A
-@cache(entity="user", cache_key="user.get_by_id")
+
+UserEntity = "user"
+@cache(entity=UserEntity)
 def get_user(user_id):
     return {"id": user_id, "name": "User from Service A"}
 
+get_user(1)
+
 # In service B
-@cache(entity="user", cache_key="user.get_by_id")
-def fetch_user(id_):  # Different function
-    return {"id": id_, "name": "User from Service B"}
+UserEntity = "user"
+@cache(entity=UserEntity)
+def fetch_user(some_user_filter):  # Different function
+    # id is 1 as a result of filter
+    return {"id": 1, "name": "User from Service B"} 
+
+fetch_user({'name': 'User from Service B'})
+
+# In any of your services, given that your key_prefix is same everywhere, it will invalidate all functions
+cache.invalidate("user", )
+
 ```
+
+> Note: Optionally if you want to share the *same* cache result between functions use `cache_key`, but in this case make sure to keep them idempotent
 
 ### Custom Entity Extraction (TODO)
 
