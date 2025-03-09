@@ -48,7 +48,7 @@ This ensures fresh records with real-time update & synchronization support.
 - 🔑 **Smart Invalidation**: Instantly clears all function caches tied to an entity’s footprint
 - 📋 **Custom ID Fields**: Support for entities with non-standard/composite ID field names
 - 🔒 **Custom Serialization**: Cache objects that aren't JSON-serializable
-- 🔄 **Cross-Service Compatible**: Designed to play nice across services with compatible and simple payloads
+- 🔄 **Cross-Service Compatible**: Designed to play nice across services with traditional and simple payloads
 - 🧩 **ORM Integration**: Optional support for SQLAlchemy and Django models with auto primary key extraction
 
 ## Installation
@@ -113,7 +113,7 @@ def delete_user(user_id):
     cache.invalidate_entity("user", user_id)
 ```
 
-You can also use the traditional approach with `@cache(entity="user")` which is equivalent to `@cache.tracks('user')`.
+You can also use the expressive alias `@cache.tracks('user')` instead of `@cache('user')`.
 
 #### Plain Caching
 
@@ -258,7 +258,7 @@ def get_user(user_id):
 
 # In service B
 @cache(entity="user", cache_key="user.get_by_id")
-def fetch_user(id_):  # Different function name
+def fetch_user(id_):  # Different function
     return {"id": id_, "name": "User from Service B"}
 ```
 
