@@ -248,8 +248,7 @@ This library offers the same standard read-through caching decorator for your fu
 
 ### Cross-Service Caching
 
-Nothing special needed here. As an example, given that you use same prefix in all of your services, on update of the particular user - cache is able to identify all function calls that it needs to invalidate for a given user.
-
+Nothing special needed here. As an example, given that you use same prefix in all of your services, on update of the particular user - cache is able to identify all function call points that it needs to invalidate for a given user.
 
 
 ```python
@@ -271,7 +270,8 @@ def fetch_user(some_user_filter):  # Different function
 
 fetch_user({'name': 'User from Service B'})
 
-# In any of your services, given that your key_prefix is same everywhere, it will invalidate all functions
+# In any of your services, given that your key_prefix is same everywhere,
+# it will invalidate all function calls where in your platform where it returned user with ID of 1.
 cache.invalidate("user", )
 
 ```
