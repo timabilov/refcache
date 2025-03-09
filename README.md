@@ -91,7 +91,7 @@ memory_cache = EntityCache()
 
 ```python
 # Cache function results and track entity references
-@cache.tracks('user')
+@cache('user') # "user" - tags a system-wide entity for unified tracking by their reference
 def get_user(user_id):
     # Your database/interservice query here
     return {"id": user_id, "name": f"User {user_id}"}
