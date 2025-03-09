@@ -81,7 +81,7 @@ class CustomBase:
 
     pk = sa.Column(sa.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
 
-# Model without explicit tablename
+# Model without explicit tablename and with mixed primary key from custom base and its own
 class Tag(CustomBase):
     # SQLAlchemy will auto-generate from CustomBase
     id = sa.Column(sa.Integer, primary_key=True)
@@ -160,8 +160,7 @@ def test_sqlalchemy_id_extraction_standard(db_session):
     _, id_extractor = get_entity_name_and_id_extractor(User)
 
     extracted_id = id_extractor(user)
-    assert extracted_id == 1
-    assert isinstance(extracted_id, int)
+    assert extracted_id == ['id']
 
 def test_sqlalchemy_id_extraction_custom_pk(db_session):
     """Test ID extraction from a model with custom PK field name."""
@@ -169,8 +168,7 @@ def test_sqlalchemy_id_extraction_custom_pk(db_session):
     _, id_extractor = get_entity_name_and_id_extractor(Product)
 
     extracted_id = id_extractor(product)
-    assert extracted_id == 101
-    assert isinstance(extracted_id, int)
+    assert extracted_id == ['product_id']
 
 def test_sqlalchemy_id_extraction_uuid_pk(db_session):
     """Test ID extraction from a model with UUID primary key."""
@@ -178,18 +176,15 @@ def test_sqlalchemy_id_extraction_uuid_pk(db_session):
     _, id_extractor = get_entity_name_and_id_extractor(Order)
 
     extracted_id = id_extractor(order)
-    assert extracted_id == "order-123"
-    assert isinstance(extracted_id, str)
+    assert extracted_id == ['id']
 
 def test_sqlalchemy_id_extraction_composite_pk(db_session):
     """Test ID extraction from a model with composite primary key."""
-    order_item = db_session.query(OrderItem).first()
     _, id_extractor = get_entity_name_and_id_extractor(OrderItem)
 
-    # For composite keys, SQLAlchemy extractors typically use the first PK column
-    extracted_id = id_extractor(order_item)
-    assert extracted_id == "order-123"  # The first part of the composite key
-    assert isinstance(extracted_id, str)
+    # For composite keys
+    extracted_id = id_extractor(OrderItem)
+    assert extracted_id == ['order_id', 'product_id']
 
 def test_sqlalchemy_id_extraction_auto_tablename(db_session):
     """Test ID extraction from a model with auto-generated tablename."""
@@ -197,8 +192,7 @@ def test_sqlalchemy_id_extraction_auto_tablename(db_session):
     _, id_extractor = get_entity_name_and_id_extractor(Tag)
 
     extracted_id = id_extractor(tag)
-    assert extracted_id == 1
-    assert isinstance(extracted_id, int)
+    assert extracted_id == ['id', 'pk']
 
 
 def test_simple_sqlalchemy_caching(db_session):

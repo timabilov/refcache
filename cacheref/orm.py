@@ -117,5 +117,9 @@ def _get_django_info(model_class: Type) -> Tuple[str, Callable]:
     """Get entity name and ID extractor for a Django model."""
     # Get table name from model's _meta
     entity_name = model_class._meta.db_table
-    pk_fields = [field.name for field in model_class._meta.fields if field.primary_key]
+    # Does not support composite primary keys properly, starting 5.2 they introduced _meta.pk_fields
+    # https://docs.djangoproject.com/en/5.2/topics/composite-primary-key/#building-composite-primary-key-ready-applications
+    if hasattr(model_class._meta, 'pk_fields') and model_class._meta.pk_fields:
+        return entity_name, lambda model_class: model_class._meta.pk_fields
+    pk_fields = [field.name for field in model_class._meta.fields if field.primary_key or field.unique]
     return entity_name, lambda model_class: pk_fields

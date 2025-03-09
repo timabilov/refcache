@@ -35,7 +35,9 @@ class StringPKModel(models.Model):
     class Meta:
         app_label = 'test_app'
 
-# Model with composite primary key via unique_together
+# Model with composite primary key via unique_together. Django still created new ID
+# Starting from 5.2, Django introduced composite primary keys.
+# pk = models.CompositePrimaryKey("product_id", "order_id")
 class CompositePKModel(models.Model):
     first_id = models.IntegerField()
     second_id = models.IntegerField()

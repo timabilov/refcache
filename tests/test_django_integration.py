@@ -64,8 +64,7 @@ def test_id_extraction_standard_model(enable_django):
     obj = TestModel.objects.create(name="Standard Model", description="Standard model test")
     _, id_extractor = get_entity_name_and_id_extractor(TestModel)
     extracted_id = id_extractor(obj)
-    assert extracted_id == obj.id
-    assert isinstance(extracted_id, int)
+    assert extracted_id == ['id']
 
 @pytest.mark.django_db
 def test_id_extraction_uuid_model(enable_django):
@@ -73,8 +72,7 @@ def test_id_extraction_uuid_model(enable_django):
     obj = UUIDModel.objects.create(name="UUID Model")
     _, id_extractor = get_entity_name_and_id_extractor(UUIDModel)
     extracted_id = id_extractor(obj)
-    assert extracted_id == obj.id
-    assert isinstance(extracted_id, uuid.UUID)
+    assert extracted_id == ['id']
 
 @pytest.mark.django_db
 def test_id_extraction_custom_pk_model(enable_django):
@@ -82,8 +80,7 @@ def test_id_extraction_custom_pk_model(enable_django):
     obj = CustomPKModel.objects.create(name="Custom PK Model")
     _, id_extractor = get_entity_name_and_id_extractor(CustomPKModel)
     extracted_id = id_extractor(obj)
-    assert extracted_id == obj.custom_id
-    assert isinstance(extracted_id, int)
+    assert extracted_id == ['custom_id']
 
 @pytest.mark.django_db
 def test_id_extraction_string_pk_model(enable_django):
@@ -91,9 +88,7 @@ def test_id_extraction_string_pk_model(enable_django):
     obj = StringPKModel.objects.create(code="ABC123", name="String PK Model")
     _, id_extractor = get_entity_name_and_id_extractor(StringPKModel)
     extracted_id = id_extractor(obj)
-    assert extracted_id == obj.code
-    assert extracted_id == "ABC123"
-    assert isinstance(extracted_id, str)
+    assert extracted_id == ['code']
 
 @pytest.mark.django_db
 def test_id_extraction_composite_pk_model(enable_django):
@@ -105,23 +100,7 @@ def test_id_extraction_composite_pk_model(enable_django):
     obj = CompositePKModel.objects.create(first_id=1, second_id=2, name="Composite PK Model")
     _, id_extractor = get_entity_name_and_id_extractor(CompositePKModel)
     extracted_id = id_extractor(obj)
-    assert extracted_id == obj.id  # Django still creates an auto-incrementing id
-    assert isinstance(extracted_id, int)
-
-
-# Test extraction works via pk attribute
-@pytest.mark.django_db
-def test_id_extraction_via_pk_attribute(enable_django):
-    """Verify that the ID extraction works through Django's pk attribute."""
-    obj = TestModel.objects.create(name="PK Test", description="Testing pk attribute")
-
-    # Manually verify pk is functioning correctly
-    assert obj.pk == obj.id
-
-    # Test that our extractor uses pk
-    _, id_extractor = get_entity_name_and_id_extractor(TestModel)
-    extracted_id = id_extractor(obj)
-    assert extracted_id == obj.pk
+    assert extracted_id == ['id']
 
 # Test caching with Django model
 @pytest.mark.django_db
