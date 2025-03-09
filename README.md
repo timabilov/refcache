@@ -101,10 +101,10 @@ user = get_user(42)
 
 # Update user and automatically invalidate cache
 @cache.invalidates('user')
-def update_user(user_id, data):
+def update_users(user_ids, data):
     # Update in database...
-    # The return value is used to extract entity IDs for invalidation
-    return {"id": user_id, "name": data.get("name")}
+    # The return value is used to extract entity IDs for invalidation of all functions that this two entities affect
+    return [{"id": user_ids[0], "name": data.get("name")},  {"id": user_ids[1], "name": data.get("name")}]
 
 # Or manually invalidate
 def delete_user(user_id):
