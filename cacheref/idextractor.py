@@ -110,8 +110,6 @@ def _parse_item_id(source_func: Callable, item: Any, supported_id_types: Tuple[T
     else:
         raise ValueError(f"Unsupported id_key extractor type {type(extractor)} in {source_func.__name__}, \
                             provide either callable or str as field for key")
-    return None
-
 
 def _first_result_from_extractors(item: Any, source_func: Callable, supported_id_types: Tuple[Type],
                                   extractor_list: Tuple[Union[str, Callable[[Any], KeyType]]],
