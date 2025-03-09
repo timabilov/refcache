@@ -270,7 +270,9 @@ def fetch_user(some_user_filter):  # Different function
 
 fetch_user({'name': 'User from Service B'})
 
-# In any of your services, given that your key_prefix is same everywhere,
+# In any of your services
+
+# Given that your key_prefix is same everywhere,
 # it will invalidate all function calls where in your platform where it returned user with ID of 1.
 # see @cache.invalidates for more
 cache.invalidate("user", 1)
