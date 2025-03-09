@@ -142,7 +142,7 @@ def get_customer(customer_id):
 
 ### ORM Integration
 
-Cacheref supports direct integration with SQLAlchemy and Django ORM models. You can pass model classes directly to the `entity` parameter, and cacheref will automatically extract table names and primary keys.
+Cacheref supports direct integration with SQLAlchemy and Django ORM models. You can pass model classes directly to the `entity` parameter, and cacheref will automatically extract table names and primary keys even composite ones.
 
 > Note: 
 > * Pickle is used as default serializer/deserializer. It can be customized
