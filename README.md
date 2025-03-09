@@ -45,11 +45,11 @@ This ensures fresh records with real-time update & synchronization support.
 
 ## Features
 
-- 🔑 **Smart Invalidation**: Automatically tracks which changed entities appear in cached results
-- 📋 **Custom ID Fields**: Support for entities with non-standard ID field names
+- 🔑 **Smart Invalidation**: Instantly clears all function caches tied to an entity’s footprint
+- 📋 **Custom ID Fields**: Support for entities with non-standard/composite ID field names
 - 🔒 **Custom Serialization**: Cache objects that aren't JSON-serializable
-- 🔄 **Cross-Service Compatible**: Share cache references between different services with simple invalidation triggers
-- 🧩 **ORM Integration**: Optional support for SQLAlchemy and Django models with automatic primary key extraction
+- 🔄 **Cross-Service Compatible**: Designed to play nice across services with compatible and simple payloads
+- 🧩 **ORM Integration**: Optional support for SQLAlchemy and Django models with auto primary key extraction
 
 ## Installation
 
@@ -242,7 +242,7 @@ Write-through caching ensures consistency but couples your code to the cache lay
 
 ### What it does?
 
-It basically helps you to both do read-through cache of your functions, by being able to invalidate them on  as *any* entity inside of them gets invalidated as long as you give reference. Integrate seamlessly into existing codebases, supporting any data structure(DjangoORM, SqlAchemy or even basic list of dictionaries) with minimal overhead. With that, you get almost same consistency as write-through.
+It basically helps you to both do read-through cache of your functions, by being able to invalidate them on  as *any* entity inside of them gets invalidated as long as you give reference. Integrate seamlessly into existing codebases, supporting actually any data structure(DjangoORM, SqlAchemy or even basic list of dictionaries) with minimal overhead. With that, you get almost same consistency as write-through.
 
 ## Advanced Usage
 
@@ -305,6 +305,9 @@ def get_event(event_id):
         "attendees": set([1, 2, 3]) # same here
     }
 ```
+
+> Note: pickle is used by default if ORM Integration is used
+
 ## API Reference
 
 ### EntityCache
@@ -495,7 +498,7 @@ The backend must implement Redis-compatible commands:
 
 ### Logging and Debugging
 
-The library includes built-in logging for debugging cache operations:
+The library includes built-in logging for debugging:
 
 ```python
 import logging
@@ -517,17 +520,12 @@ logger.setLevel(logging.DEBUG)
 
 ## Development and Testing
 
-### Running Tests
-
 ```bash
-# Run tests with Redis using the convenience script
+
+poetry install
+
 ./run_tests.sh
 
-# Run specific tests
-./run_tests.sh tests/test_redis_backend.py
-
-# Or run pytest directly (with Redis running)
-pytest tests/test_redis_backend.py
 ```
 
 ## License
