@@ -257,18 +257,18 @@ Nothing special needed here. As an example, given that you use same prefix in al
 UserEntity = "user"
 @cache(entity=UserEntity)
 def get_user(user_id):
-    return {"id": user_id, "name": "User from Service A"}
+    return {"id": user_id, "name": "Sam Jones"}
 
 get_user(1)
 
 # In service B
 UserEntity = "user"
 @cache(entity=UserEntity)
-def fetch_user(some_user_filter):  # Different function
+def fetch_user(some_user_filter):  # Completely different function
     # id is 1 as a result of filter
-    return {"id": 1, "name": "User from Service B"} 
+    return {"id": 1, "name": "Sam Jones"} 
 
-fetch_user({'name': 'User from Service B'})
+fetch_user({'name': 'Sam Jones'})
 
 # In any of your services
 
