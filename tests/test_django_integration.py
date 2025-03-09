@@ -1,6 +1,5 @@
 """Tests for Django ORM integration with cacheref."""
 
-import uuid
 from typing import Optional
 
 import pytest
