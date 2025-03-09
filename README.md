@@ -166,7 +166,7 @@ class User(Base):
 # Pass the model class directly - no need to specify entity name or id_key
 @cache.tracks(User)
 def get_user(user_id):
-    return session.query(User).get(user_id)
+    return session.query(User).get(user_id)  # it can return list too
 
 # Automatically invalidates cache based on primary key
 @cache.invalidates(User)
@@ -193,7 +193,7 @@ class Article(models.Model):
 # Pass the model class directly - no need to specify entity name or id_key
 @cache.tracks(Article)
 def get_article(article_id):
-    return Article.objects.get(id=article_id)
+    return Article.objects.get(id=article_id) # it can return list too
 
 # Automatically invalidates cache based on primary key
 @cache.invalidates(Article)
