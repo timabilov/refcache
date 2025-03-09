@@ -238,11 +238,11 @@ Unlike ORM-specific caching tools, this library supports any data format—Djang
 
 ### Write-Through vs. Read-Through Tradeoffs
 
-Write-through caching ensures consistency but couples your code to the cache layer. Basic read-through caching risks staleness. This library combines read-through caching with event-driven invalidation for near real-time consistency without lock-in.
+Write-through caching keeps data consistent but couples your read and cache layers together, complicating each read component in a different way. On the other side, plain read-through caching can leave you with stale data. This library blends read-through caching with event-driven invalidation to deliver near real-time consistency, consistency without lock-in.
 
 ### What it does?
 
-It basically helps you to both do read-through cache of your functions, by being able to invalidate them on  as *any* entity inside of them gets invalidated as long as you give reference. Integrate seamlessly into existing codebases, supporting actually any data structure(DjangoORM, SqlAchemy or even basic list of dictionaries) with minimal overhead. With that, you get almost same consistency as write-through.
+This library offers the same standard read-through caching decorator for your functions. But, when an entity referenced in those functions is updated, the cache can be easily invalidated either automatically or manually, as long as you provide the reference to track it. It integrates easily into your existing codebase—unlike write-through caching—and supports a wide range of data structures, including Django ORM models, SQLAlchemy objects, or basic lists of dictionaries, with relatively low performance. This approach allows to use write-around caching (or same old read-through caching) very effectively while maintaining flexibility across your codebase without adapting it to cache changes.
 
 ## Advanced Usage
 
