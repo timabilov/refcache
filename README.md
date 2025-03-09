@@ -6,6 +6,8 @@
 
 This ensures fresh records with real-time update & synchronization support.
 
+> Note: This project is under active development. Use with caution.
+
 ## Table of Contents
 
 - [Features](#features)
@@ -16,6 +18,9 @@ This ensures fresh records with real-time update & synchronization support.
     - [With Entity Tracking](#with-entity-tracking)
     - [Plain Caching](#plain-caching)
   - [Custom ID Fields](#custom-id-fields)
+  - [ORM Integration](#orm-integration)
+    - [SQLAlchemy Integration](#sqlalchemy-integration)
+    - [Django Integration](#django-integration)
 - [How It Works](#how-it-works)
 - [Why this library?](#why-this-library)
   - [ORM limitations](#orm-limitations)
@@ -44,6 +49,7 @@ This ensures fresh records with real-time update & synchronization support.
 - 📋 **Custom ID Fields**: Support for entities with non-standard ID field names
 - 🔒 **Custom Serialization**: Cache objects that aren't JSON-serializable
 - 🔄 **Cross-Service Compatible**: Share cache references between different services with simple invalidation triggers
+- 🧩 **ORM Integration**: Direct support for SQLAlchemy and Django models with automatic primary key extraction
 
 ## Installation
 
@@ -84,7 +90,8 @@ memory_cache = EntityCache()
 #### With Entity Tracking
 
 ```python
-@cache(entity="user")
+# Cache function results and track entity references
+@cache.tracks('user')
 def get_user(user_id):
     # Your database/interservice query here
     return {"id": user_id, "name": f"User {user_id}"}
@@ -92,12 +99,21 @@ def get_user(user_id):
 # Get user (will be cached)
 user = get_user(42)
 
-# Update user and invalidate cache
+# Update user and automatically invalidate cache
+@cache.invalidates('user')
 def update_user(user_id, data):
     # Update in database...
+    # The return value is used to extract entity IDs for invalidation
+    return {"id": user_id, "name": data.get("name")}
+
+# Or manually invalidate
+def delete_user(user_id):
+    # Delete from database...
     # Then invalidate all caches containing this user
     cache.invalidate_entity("user", user_id)
 ```
+
+You can also use the traditional approach with `@cache(entity="user")` which is equivalent to `@cache.tracks('user')`.
 
 #### Plain Caching
 
@@ -123,6 +139,64 @@ def get_customer(customer_id):
     # Your database query here
     return {"customer_id": customer_id, "name": f"Customer {customer_id}"}
 ```
+
+### ORM Integration
+
+Cacheref supports direct integration with SQLAlchemy and Django ORM models. You can pass model classes directly to the `entity` parameter, and cacheref will automatically extract table names and primary keys.
+
+#### SQLAlchemy Integration
+
+```python
+from sqlalchemy import Column, Integer, String
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
+
+class User(Base):
+    __tablename__ = 'users'
+    
+    id = Column(Integer, primary_key=True)
+    name = Column(String)
+
+# Pass the model class directly - no need to specify entity name or id_key
+@cache.tracks(User)
+def get_user(user_id):
+    return session.query(User).get(user_id)
+
+# Automatically invalidates cache based on primary key
+@cache.invalidates(User)
+def update_user(user_id, name):
+    user = session.query(User).get(user_id)
+    user.name = name
+    session.commit()
+    return user
+```
+
+#### Django Integration
+
+```python
+from django.db import models
+
+class Article(models.Model):
+    title = models.CharField(max_length=100)
+    content = models.TextField()
+
+# Pass the model class directly - no need to specify entity name or id_key
+@cache.tracks(Article)
+def get_article(article_id):
+    return Article.objects.get(id=article_id)
+
+# Automatically invalidates cache based on primary key
+@cache.invalidates(Article)
+def update_article(article_id, title):
+    article = Article.objects.get(id=article_id)
+    article.title = title
+    article.save()
+    return article
+```
+
+The ORM integration is optional - SQLAlchemy and Django are not required dependencies.
+
 ## How It Works
 
 When a function is decorated with `@cache(entity="user")`:
@@ -240,13 +314,17 @@ cache = EntityCache(
 )
 ```
 
-### @cache()
+### Cache Decorators
 
-Decorator for caching function results.
+EntityCache provides several decorator methods for caching function results:
+
+#### @cache() / @cache.\_\_call\_\_()
+
+The traditional decorator for caching function results:
 
 ```python
 @cache(
-    entity="user",  # Type of entity returned (optional)
+    entity="user",  # Type of entity returned (string) or ORM model class (optional)
     id_key="id",  # Field name or callable resolved to entity ID, not relevant on flat lists (optional)
     cache_key=None,  # Custom cache key for function (optional)
     normalize_args=False,  # Whether to normalize arguments (optional)
@@ -254,6 +332,70 @@ Decorator for caching function results.
 )
 def my_function():
     # ...
+```
+
+You can also use an ORM model class directly:
+
+```python
+# Using SQLAlchemy model
+from myapp.models import User  # SQLAlchemy model
+
+@cache(entity=User)
+def get_user(user_id):
+    # ...
+
+# Using Django model
+from myapp.models import Article  # Django model
+
+@cache(entity=Article)
+def get_article(article_id):
+    # ...
+```
+
+#### @cache.tracks()
+
+A more expressive alias for `@cache()` that clearly communicates the function's results will be cached and entity references will be tracked:
+
+```python
+@cache.tracks(
+    entity="user",  # Type of entity returned by this function (string or ORM model class)
+    id_key="id",    # How to extract entity IDs from results
+    # All other parameters from @cache() are supported
+)
+def get_user(user_id):
+    # ...
+
+# With ORM model class
+from myapp.models import User  # SQLAlchemy or Django model
+
+@cache.tracks(User)  # Automatically uses table name and extracts primary key
+def get_user(user_id):
+    # ...
+```
+
+#### @cache.invalidates()
+
+Automatically invalidates entity caches based on the function's return value:
+
+```python
+@cache.invalidates(
+    entity="user",  # Type of entity to invalidate (string or ORM model class)
+    id_key="id"     # How to extract entity IDs from the return value
+)
+def update_user(user_id, data):
+    # Update in database...
+    return {"id": user_id, "name": data.get("name")}
+
+# With ORM model class
+from myapp.models import User  # SQLAlchemy or Django model
+
+@cache.invalidates(User)  # Automatically extracts primary key from model instance
+def update_user(user_id, data):
+    # Update in database...
+    user = session.query(User).get(user_id)  # or User.objects.get(id=user_id)
+    user.name = data.get("name")
+    session.commit()  # or user.save()
+    return user
 ```
 ### Invalidation Methods
 

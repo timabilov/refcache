@@ -10,6 +10,7 @@ import hashlib
 import inspect
 import json
 import logging
+import pickle
 from typing import Any, Callable, Dict, List, Literal, Optional, Protocol, Tuple, Type, TypeVar, Union, cast
 from uuid import UUID
 
@@ -55,9 +56,36 @@ class EntityCache:
     allowing for precise cache invalidation when entities change.
 
     Works with any backend that implements the CacheBackend interface.
+    
+    Key features:
+    - Function caching with automatic entity reference tracking
+    - Precise cache invalidation based on entity changes
+    - Support for custom cache backends
+    - Flexible entity ID extraction from complex result structures
+    
+    Usage:
+    ```python
+    # Initialize cache with desired backend
+    cache = EntityCache(RedisBackend(redis_client))
+    
+    # Cache function results and track entity references
+    @cache.tracks('user')
+    def get_user(user_id):
+        return db.get_user(user_id)
+        
+    # Automatically invalidate cache when entities change
+    @cache.invalidates('user')
+    def update_user(user_id, data):
+        user = db.update_user(user_id, data)
+        return user
+        
+    # Manual invalidation when needed
+    cache.invalidate_entity('user', user_id)
+    ```
     """
 
     _signature_cache = {}
+
 
     def __init__(
         self,
@@ -71,17 +99,30 @@ class EntityCache:
         enabled: bool = True,
     ):
         """
-        Initialize the cache decorator.
+        Initialize the EntityCache decorator.
 
         Args:
-            backend: CacheBackend instance (if not provided, will use in-memory backend with default prefix)
-            locked_ttl: If this locked TTL is set, it will not allow arbitrary TTL for functions
-                        This prevents unnecessary estimations for reverse index which can be costly (default: None)
-            fail_on_missing_id: Raise an error if an ID cannot be extracted from the result
-            serializer: Function to serialize data (default: msgspec.msgpack.encode if available, or json.dumps)
-            deserializer: Function to deserialize data (default: msgspec.msgpack.decode if available, or json.loads)
-            debug: Enable debug logging
-            enabled: Enable or disable caching (useful for testing or development)
+            backend: CacheBackend instance to store cache data. If not provided, 
+                    uses an in-memory backend with "cache:" prefix. For production,
+                    consider using a persistent backend like RedisBackend.
+            locked_ttl: If set, enforces this TTL (in seconds) for all cached functions.
+                        Prevents per-function TTL customization. This helps optimize 
+                        reverse index TTL estimation in high-throughput systems. Default: None
+            fail_on_missing_id: When True, raises an error if entity IDs cannot be extracted 
+                               from a result. When False, silently ignores missing IDs.
+                               Default: True (strict mode)
+            serializer: Custom function to serialize data before caching.
+                       Default uses msgspec.msgpack.encode if available (recommended),
+                       or falls back to json.dumps.
+            deserializer: Custom function to deserialize cached data.
+                         Default uses msgspec.msgpack.decode if available (recommended),
+                         or falls back to json.loads.
+            debug: When True, enables verbose debug logging. Default: False
+            global_supported_id_types: Tuple of primitive types that are considered valid entity IDs.
+                                      These types will be extracted from results for entity-based
+                                      cache invalidation. Default: (int, str, UUID)
+            enabled: Master switch to enable/disable all caching. When False, decorated
+                    functions run normally without caching. Useful for testing. Default: True
         """
         # Set up logger
         if debug:
@@ -92,7 +133,7 @@ class EntityCache:
                 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
                 handler.setFormatter(formatter)
                 logger.addHandler(handler)
-
+        self.debug = debug
         # If backend is not provided, create memory backend with default prefix
         if backend is None:
             logger.info("No backend provided, using in-memory backend")
@@ -140,11 +181,13 @@ class EntityCache:
 
     def __call__(
         self,
-        entity: Optional[str] = None,
-        id_key: IdExtractorType = 'id',
+        entity: Optional[Union[str, Type]] = None,
+        id_key: Optional[IdExtractorType] = None,
         cache_key: Optional[str] = None,
         normalize_args: bool = False,
         ttl: Optional[int] = None,
+        serializer: Optional[Callable] = None,
+        deserializer: Optional[Callable] = None,
         supported_id_types=(str, int, UUID),
         scope: Literal['function', 'entity'] = 'function',
     ):
@@ -152,26 +195,66 @@ class EntityCache:
         Main decorator that caches function results.
 
         Args:
-            entity: The primary entity type this function deals with
-                  (e.g., 'user', 'product')
-            id_key: Name of the field or callable resolved to entity ID key, supports iterable
-                    that applied in order until parsed, default 'id'
-            cache_key: Optional custom key name for the cache to unify caching
-                      across services or functions
-            normalize_args: Whether to normalize argument values for consistent
-                           cache keys across services
-            ttl: Optional override for TTL (defaults to instance TTL)
-            supported_id_types: The supported primitive ID types to extract from,
-                                Strongly recommend using 'global_supported_id_types' instead
+            entity: The primary entity type this function deals with. Can be:
+                  - String: Entity type name (e.g., 'user', 'product')
+                  - Class: SQLAlchemy or Django ORM model class (e.g., User, Product)
+                  Used for cache invalidation when entities of this type are modified.
+            id_key: How to extract entity IDs from function results for cache invalidation.
+                  Can be one of:
+                  - String: attribute name to access on result objects (e.g., 'id', 'user_id')
+                  - Callable: function that extracts ID from result object
+                  - Tuple of (str, callable): tries string access first, falls back to callable
+                  Default is 'id'. If entity is an ORM model class, this is automatically set
+                  to extract the primary key from model instances.
+            cache_key: Optional custom key prefix for the cache to unify caching
+                      across services or functions. If not provided, uses function name.
+            normalize_args: Whether to normalize argument values (sorts lists/dicts) for consistent
+                           cache keys across different argument orders. Set to True when
+                           cache key consistency is important across different services.
+            ttl: Optional override for cache TTL in seconds (defaults to instance TTL or 300s).
+                 Cannot be used when locked_ttl is set on the cache instance.
+            supported_id_types: Types that are treated as valid entity IDs when extracted.
+                                Default: (str, int, UUID). Strongly recommended to use the
+                                global_supported_id_types instance parameter instead of
+                                overriding per function.
             scope (deprecated): Determines the scope of cache sharing, with two possible values:
                   - 'function' (default): Function first caching with no cache sharing between same entity signatures
                   - 'entity': Entity first caching - different functions with same entity and arguments share cache
+            serializer: Custom function to serialize data before caching. If not provided, uses the default
+                        serializer set on the cache instance.
+            deserialize: Custom function to deserialize cached data. If not provided, uses the default deserializer
+                         set on the cache instance.
 
         Returns:
-            Decorated function
+            Decorated function that will cache its results
         """
+        # Handle ORM model class provided as entity
+        effective_entity = entity
+        # defined here, but still can be overridden by ORM detection etc.
+        effective_id_key = id_key
+
+        if entity is not None and not isinstance(entity, str):
+            try:
+                # Import here to maintain optional dependency
+                from .orm import get_entity_name_and_id_extractor
+                entity_name, extractor = get_entity_name_and_id_extractor(entity)
+
+                # Use the detected entity name
+                effective_entity = entity_name
+
+                # Only override id_key if it's not set
+                if id_key is None:
+                    effective_id_key = extractor
+                    logger.debug(f"Using ORM extractor for {entity_name} model")
+            except (ImportError, ValueError) as e:
+                # If ORM support fails, fall back to using class name
+                logger.warning(f"ORM detection failed: {e}. Using class name as entity.")
+                effective_entity = entity.__name__.lower()
 
         supported_id_types = supported_id_types or self.supported_primitive_id_types
+
+        # if id_key was not set/detected set default as 'id'
+        effective_id_key = effective_id_key or 'id'
 
         def decorator(func: Callable[..., T]) -> CacheableFunction[T]:
             func_signature_log =  f'function({func.__module__}.{func.__name__}) @{self.__class__.__name__}()'
@@ -184,8 +267,18 @@ class EntityCache:
                 raise ValueError(f"Cannot set custom TTL in {func_signature_log} when locked TTL is set on instance "\
                                  "level, please either remove locked ttl "\
                                  "or custom ttl, Read more about locked ttl in the documentation")
+            if isinstance(entity, str):
+                effective_serializer: Callable = serializer or self.serializer
+            else:
+                effective_serializer: Callable = pickle.dumps
+
+            if isinstance(entity, str):
+                effective_deserializer: Callable = deserializer or self.deserializer
+            else:
+                effective_deserializer: Callable = pickle.loads
 
             effective_ttl = ttl if ttl is not None else self.ttl
+
             # if none was set, use default TTL,
             # TODO make this flexible/configurable
             # relax locked_ttl restrictions and auto handle ttl optimizations for ttl tracking
@@ -205,7 +298,7 @@ class EntityCache:
                 effective_func_key = self.construct_key(
                     func=func,
                     cache_key=cache_key,
-                    entity=entity,
+                    entity=effective_entity,
                     scope=scope,
                     args=processed_args,
                     kwargs=processed_kwargs
@@ -214,21 +307,24 @@ class EntityCache:
                 try:
                     cached = self.backend.get(effective_func_key)
                     if cached:
-                        logger.debug("[HIT]  %s %s %s", func.__name__, processed_args, processed_kwargs)
+                        if self.debug:
+                            ttl = self.backend.ttl(effective_func_key)
+                            logger.debug("[HIT]  %s %s %s TTL: %s, TTL setting: %s ", func.__name__, processed_args, processed_kwargs, ttl, effective_ttl)
                         try:
-                            return self.deserializer(cached)
+                            return effective_deserializer(cached)
                         except Exception as e:
-                            logger.warning("Failed to deserialize cached data: %s", e)
+                            logger.warning("Failed to deserialize cached data, try to recache..: %s", exc_info=e)
                     else:
                         logger.debug("Cache miss for function: %s %s", func.__name__, effective_func_key)
                 except Exception as e:
-                    logger.warning("Cache get operation failed: %s", e)
+                    logger.warning("Cache get operation failed: %s", exc_info=e)
 
                 # Call the function, raise error if it fails
                 result = func(*args, **kwargs)
                 self._cache(
                     result, func, effective_func_key, effective_ttl, supported_id_types,
-                    entity=entity, id_key=id_key
+                    entity=effective_entity, id_key=effective_id_key,
+                    effective_serializer=effective_serializer
                 )
 
                 return result
@@ -236,19 +332,164 @@ class EntityCache:
             # Store all key construction parameters on the wrapper
             # This ensures consistency between decorator usage and direct key construction
             typed_wrapper.cache_key = cache_key
-            typed_wrapper.entity = entity
+            typed_wrapper.entity = effective_entity
             typed_wrapper.scope = scope
             typed_wrapper.ttl = ttl or self.ttl
             typed_wrapper.normalize_args = normalize_args
-            typed_wrapper.id_key = id_key
+            typed_wrapper.id_key = effective_id_key
             typed_wrapper.caught_exceptions = []
             return typed_wrapper
+        return decorator
+
+    def tracks(self, entity: Union[str, Type], id_key: IdExtractorType = 'id', **kwargs):
+        """
+        Decorator that caches function results and tracks entity references.
+
+        This is an alias for the __call__ method.
+
+        Args:
+            entity: The entity type that appears in this function's results.
+                   Can be a string (e.g., 'user', 'product') or an ORM model class.
+            id_key: How to extract entity IDs from the result objects.
+                   If entity is an ORM model and id_key is 'id', this will be
+                   automatically set to extract primary keys.
+            **kwargs: Additional arguments to pass to the cache decorator
+                     (ttl, cache_key, normalize_args, etc.)
+                     
+        Returns:
+            Decorated function that will cache its results and track entity references
+            
+        Examples:
+            ```python
+            # Using string entity
+            @cache.tracks('user')
+            def get_user(user_id):
+                # Get user from database
+                return db.get_user(user_id)
+                
+            # Using SQLAlchemy model
+            @cache.tracks(User)
+            def get_user(user_id):
+                # Get user from database
+                return db.session.query(User).get(user_id)
+                
+            # Using Django model
+            @cache.tracks(User)
+            def get_user(user_id):
+                # Get user from database
+                return User.objects.get(id=user_id)
+            ```
+        """
+        # This is just an alias for the __call__ method
+        return self(entity=entity, id_key=id_key, **kwargs)
+
+    def invalidates(self, entity: Union[str, Type], id_key: IdExtractorType = 'id'):
+        """
+        Decorator that automatically invalidates cache entries for an entity type
+        based on the return value of the decorated function.
+        
+        This decorator extracts entity IDs from the function's return value
+        and invalidates all cache entries that reference those entities.
+        
+        Args:
+            entity: The entity type to invalidate. Can be:
+                   - String (e.g., 'user', 'product')
+                   - ORM model class (e.g., User, Product)
+            id_key: How to extract entity IDs from the function result.
+                   Can be a string attribute name, a callable function, or
+                   a tuple of (string, callable).
+                   If entity is an ORM model and id_key is 'id', this will be
+                   automatically set to extract primary keys.
+                   
+        Returns:
+            Decorator function that wraps the original function
+            
+        Examples:
+            ```python
+            # Using string entity
+            @cache.invalidates('user')
+            def update_user(user_id, **data):
+                # Update user in database
+                user = db.update_user(user_id, **data)
+                # Function return value is used to extract entity IDs for invalidation
+                return user
+                
+            # Using SQLAlchemy model
+            @cache.invalidates(User)
+            def update_user(user_id, **data):
+                # Update user in database
+                user = db.session.query(User).get(user_id)
+                user.name = data['name']
+                db.session.commit()
+                return user
+                
+            # Using Django model
+            @cache.invalidates(User)
+            def update_user(user_id, **data):
+                # Update user in database
+                user = User.objects.get(id=user_id)
+                user.name = data['name']
+                user.save()
+                return user
+            ```
+        """
+        # Handle ORM model class provided as entity
+        effective_entity = entity
+        effective_id_key = id_key
+
+        if entity is not None and not isinstance(entity, str):
+            try:
+                # Import here to maintain optional dependency
+                from .orm import get_entity_name_and_id_extractor
+                entity_name, extractor = get_entity_name_and_id_extractor(entity)
+
+                # Use the detected entity name
+                effective_entity = entity_name
+
+                # Only override id_key if it's the default 'id'
+                if id_key == 'id':
+                    effective_id_key = extractor
+                    logger.debug(f"Using ORM extractor for {entity_name} model in invalidates")
+            except (ImportError, ValueError) as e:
+                # If ORM support fails, fall back to using class name
+                logger.warning(f"ORM detection failed in invalidates: {e}. Using class name as entity.")
+                effective_entity = entity.__name__.lower()
+
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                # Call the original function
+                result = func(*args, **kwargs)
+
+                if self.enabled:
+                    try:
+                        # Extract entity IDs from the result
+                        entity_ids = extract_entity_ids(
+                            func, result, effective_id_key,
+                            supported_id_types=self.supported_primitive_id_types,
+                            fail_on_missing_id=self.fail_on_missing_id
+                        )
+
+                        # Invalidate cache for each entity ID
+                        for entity_id in entity_ids:
+                            self.invalidate_entity(effective_entity, entity_id)
+
+                        if entity_ids:
+                            logger.debug("Auto-invalidated %d %s entities: %s",
+                                        len(entity_ids), effective_entity, entity_ids)
+                    except Exception as e:
+                        logger.error("Error auto-invalidating %s entities: %s", effective_entity, e)
+
+                return result
+            return wrapper
         return decorator
 
     def _cache(self, fn_result: Any, func: Callable,
                effective_func_key: str, effective_ttl: int,
                supported_id_types: Tuple[Type],
-               entity: Optional[str] = None, id_key: IdExtractorType = str('id')) -> None:
+               effective_serializer: Callable,
+               entity: Optional[str] = None,
+               id_key: IdExtractorType = str('id')) -> None:
         """
         Cache the result of a function call.
 
@@ -258,11 +499,10 @@ class EntityCache:
             # Cache the result
             logger.debug("Caching result for function: %s", func.__name__)
             try:
-                serialized_result = self.serializer(fn_result)
-            except Exception as e:
-                logger.warning("Failed to serialize result: %s", e)
+                serialized_result = effective_serializer(fn_result)
+            except Exception:
+                logger.debug("Failed to serialize result: %s", exc_info=True)
                 return fn_result
-
             try:
                 pipeline = self.backend.pipeline()
                 pipeline.setex(
@@ -271,6 +511,7 @@ class EntityCache:
                     serialized_result
                 )
                 # Register this key with entity index if an entity type is specified
+                # if fn_result is empty, we don't need to cache the entity index too
                 if entity and fn_result:
                     logger.debug("[Reverse index] Recaching references for %s", entity)
                     # Get any entity IDs from the results
@@ -310,6 +551,9 @@ class EntityCache:
                                 logger.debug("[Reverse index] Skipping TTL update for %s current TTL %s > new TTL %s",
                                              entity_key, current_ttl, effective_ttl + self.reverse_index_ttl_gap)
                     logger.debug("[Reverse index] Recache ready to execute")
+                else:
+                    logger.debug("[Reverse index] Skipping reverse index recache"\
+                                 " for as either no entity or result is empty")
                 pipeline.execute()
             except Exception as e:
                 logger.warning("Cache backend operations failed: %s", e, exc_info=True)
@@ -476,14 +720,24 @@ class EntityCache:
 
     def invalidate_entity(self, entity: str, entity_id: Any):
         """
-        Invalidate all cached entries containing this entity.
+        Invalidate all cached entries containing references to a specific entity instance.
+        
+        This method finds and removes all cache entries that reference the specified entity,
+        using the entity-reference tracking system. This is the most targeted and efficient
+        way to invalidate caches when an entity is updated.
 
         Args:
-            entity: Type of entity (e.g., 'user')
-            entity_id: ID of the entity
+            entity: Type of entity (e.g., 'user', 'product', 'order')
+            entity_id: ID of the specific entity instance (can be int, str, UUID, etc.)
 
         Returns:
-            Number of keys invalidated
+            Number of cache keys invalidated (0 if no references were found)
+            
+        Example:
+            ```python
+            # After updating a user in the database
+            cache.invalidate_entity('user', user_id)
+            ```
         """
         # Get the key for this entity
         entity_key = f"entity:{entity}:{entity_id}"
@@ -535,15 +789,33 @@ class EntityCache:
 
     def invalidate_function(self, func_name: str):
         """
-        Invalidate all cache entries for a specific function.
+        Invalidate all cache entries for a specific function, regardless of arguments.
+        
+        This method removes all cached results for a given function, typically used when
+        the function logic changes, or when underlying data changes in ways that affect
+        all possible results of a function.
 
         Args:
             func_name: Fully qualified name of the function (module.function) or cache_key.
+                      Must include the module path, not just the function name.
                       For example: "myapp.utils.get_user" not just "get_user".
                       You can use `f"{func.__module__}.{func.__name__}"` to get this.
+                      If you used a custom cache_key in the decorator, use that instead.
 
         Returns:
-            Number of keys invalidated
+            Number of keys invalidated (0 if no matching cache entries were found)
+            
+        Example:
+            ```python
+            # Invalidate all cached results for get_user function
+            cache.invalidate_function("myapp.users.get_user")
+            
+            # Alternative using function reference (more convenient)
+            cache.invalidate_func(get_user)
+            ```
+            
+        See Also:
+            invalidate_func: More convenient alternative that takes a function object directly
         """
         logger.debug("Invalidating all cache entries for function: %s", func_name)
         try:

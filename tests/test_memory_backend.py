@@ -42,14 +42,14 @@ def test_memory_backend_expiry():
     assert backend.get("key1") == "value1"
 
     # Wait for expiration
-    now = datetime.datetime.now()
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
     with freeze_time(now + datetime.timedelta(seconds=0.3)):
         assert backend.get("key1") is None
 
     # Test setex directly
     backend.setex("key2", 0.3, "value2")
     assert backend.get("key2") == "value2"
-    now = datetime.datetime.now()
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
     with freeze_time(now + datetime.timedelta(seconds=0.4)):
         assert backend.get("key2") is None
 
@@ -153,7 +153,7 @@ def test_memory_backend_expire():
     # Check expiry works
     assert backend.get("key1") == "value1"
     assert len(backend.smembers("set1")) == 1
-    original_time = datetime.datetime.now()
+    original_time = datetime.datetime.now(tz=datetime.timezone.utc)
     with freeze_time(original_time + datetime.timedelta(seconds=0.3)):
         assert backend.get("key1") is None
         assert len(backend.smembers("set1")) == 0

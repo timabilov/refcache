@@ -387,3 +387,236 @@ product_again = get_product_memory(42)  # Second call will use cache
 
 # Invalidate the cache
 memory_cache.invalidate_entity("product", 42)
+
+# Example 13: Using ORM models directly (SQLAlchemy)
+# This example will only work if SQLAlchemy is installed
+try:
+    import sqlalchemy
+    from sqlalchemy import Column, Integer, String, create_engine
+    from sqlalchemy.ext.declarative import declarative_base
+    from sqlalchemy.orm import sessionmaker
+    
+    # Create a base class for SQLAlchemy models
+    Base = declarative_base()
+    
+    # Define a SQLAlchemy model
+    class Product(Base):
+        __tablename__ = 'products'
+        
+        id = Column(Integer, primary_key=True)
+        name = Column(String)
+        price = Column(Integer)
+        
+        def __repr__(self):
+            return f"<Product(id={self.id}, name='{self.name}', price={self.price})>"
+    
+    # Create an in-memory SQLite database for example
+    engine = create_engine('sqlite:///:memory:')
+    Base.metadata.create_all(engine)
+    
+    # Create a session
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
+    # Add sample data
+    product1 = Product(id=1, name="Example Product", price=99)
+    session.add(product1)
+    session.commit()
+    
+    # Create cache for SQLAlchemy example
+    sqlalchemy_cache = EntityCache(
+        backend=MemoryBackend(key_prefix="sqlalchemy:")
+    )
+    
+    # Use the Product model class directly as the entity
+    @sqlalchemy_cache.tracks(Product)
+    def get_sqlalchemy_product(product_id):
+        """Get a product from SQLAlchemy."""
+        print(f"Fetching product {product_id} from SQLAlchemy database")
+        return session.query(Product).get(product_id)
+    
+    # Example usage
+    def demo_sqlalchemy():
+        """Demonstrate SQLAlchemy integration."""
+        print("\n=== SQLAlchemy ORM Integration Example ===")
+        
+        # First call - should hit database
+        print("First call:")
+        product = get_sqlalchemy_product(1)
+        print(f"Retrieved: {product}")
+        
+        # Second call - should use cache
+        print("\nSecond call (should use cache):")
+        product_again = get_sqlalchemy_product(1)
+        print(f"Retrieved: {product_again}")
+        
+        # Invalidate cache using model directly
+        print("\nInvalidating cache:")
+        sqlalchemy_cache.invalidate_entity("products", 1)
+        
+        # Third call - should hit database again after invalidation
+        print("\nThird call (after invalidation):")
+        product_after_invalidation = get_sqlalchemy_product(1)
+        print(f"Retrieved: {product_after_invalidation}")
+    
+    # Update a product and invalidate cache
+    @sqlalchemy_cache.invalidates(Product)
+    def update_sqlalchemy_product(product_id, new_name):
+        """Update a product and invalidate cache."""
+        print(f"Updating product {product_id} in SQLAlchemy database")
+        product = session.query(Product).get(product_id)
+        product.name = new_name
+        session.commit()
+        return product
+    
+    def demo_sqlalchemy_invalidation():
+        """Demonstrate SQLAlchemy with cache invalidation."""
+        print("\n=== SQLAlchemy Cache Invalidation Example ===")
+        
+        # First call - should hit database
+        print("First call:")
+        product = get_sqlalchemy_product(1)
+        print(f"Retrieved: {product}")
+        
+        # Update product - should invalidate cache
+        print("\nUpdating product:")
+        updated_product = update_sqlalchemy_product(1, "Updated Product Name")
+        print(f"Updated to: {updated_product}")
+        
+        # Next call - should hit database due to invalidation
+        print("\nCall after update (should hit database):")
+        product_after_update = get_sqlalchemy_product(1)
+        print(f"Retrieved: {product_after_update}")
+    
+except ImportError:
+    print("\nSQLAlchemy is not installed. ORM examples will be skipped.")
+    demo_sqlalchemy = lambda: print("SQLAlchemy is not installed.")
+    demo_sqlalchemy_invalidation = lambda: print("SQLAlchemy is not installed.")
+
+# Example 14: Using ORM models directly (Django)
+# This example will only work if Django is installed
+try:
+    import django
+    from django.conf import settings
+    from django.db import models
+    
+    # Configure Django settings 
+    if not settings.configured:
+        settings.configure(
+            DATABASES={
+                'default': {
+                    'ENGINE': 'django.db.backends.sqlite3',
+                    'NAME': ':memory:',
+                }
+            },
+            INSTALLED_APPS=[
+                'django.contrib.contenttypes',
+                'django.contrib.auth',
+            ],
+        )
+        django.setup()
+    
+    # Define a Django model
+    class Article(models.Model):
+        title = models.CharField(max_length=100)
+        content = models.TextField()
+        
+        def __str__(self):
+            return f"<Article(id={self.id}, title='{self.title}')>"
+    
+    # Create the database tables
+    from django.db import connection
+    with connection.schema_editor() as schema_editor:
+        schema_editor.create_model(Article)
+    
+    # Add sample data
+    article1 = Article.objects.create(title="Example Article", content="This is a test article.")
+    
+    # Create cache for Django example
+    django_cache = EntityCache(
+        backend=MemoryBackend(key_prefix="django:")
+    )
+    
+    # Use the Article model class directly as the entity
+    @django_cache.tracks(Article)
+    def get_django_article(article_id):
+        """Get an article from Django ORM."""
+        print(f"Fetching article {article_id} from Django database")
+        return Article.objects.get(id=article_id)
+    
+    # Example usage
+    def demo_django():
+        """Demonstrate Django integration."""
+        print("\n=== Django ORM Integration Example ===")
+        
+        # First call - should hit database
+        print("First call:")
+        article = get_django_article(1)
+        print(f"Retrieved: {article}")
+        
+        # Second call - should use cache
+        print("\nSecond call (should use cache):")
+        article_again = get_django_article(1)
+        print(f"Retrieved: {article_again}")
+        
+        # Invalidate cache
+        print("\nInvalidating cache:")
+        django_cache.invalidate_entity("article", 1)
+        
+        # Third call - should hit database again after invalidation
+        print("\nThird call (after invalidation):")
+        article_after_invalidation = get_django_article(1)
+        print(f"Retrieved: {article_after_invalidation}")
+    
+    # Update an article and invalidate cache
+    @django_cache.invalidates(Article)
+    def update_django_article(article_id, new_title):
+        """Update an article and invalidate cache."""
+        print(f"Updating article {article_id} in Django database")
+        article = Article.objects.get(id=article_id)
+        article.title = new_title
+        article.save()
+        return article
+    
+    def demo_django_invalidation():
+        """Demonstrate Django with cache invalidation."""
+        print("\n=== Django Cache Invalidation Example ===")
+        
+        # First call - should hit database
+        print("First call:")
+        article = get_django_article(1)
+        print(f"Retrieved: {article}")
+        
+        # Update article - should invalidate cache
+        print("\nUpdating article:")
+        updated_article = update_django_article(1, "Updated Article Title")
+        print(f"Updated to: {updated_article}")
+        
+        # Next call - should hit database due to invalidation
+        print("\nCall after update (should hit database):")
+        article_after_update = get_django_article(1)
+        print(f"Retrieved: {article_after_update}")
+    
+except ImportError:
+    print("\nDjango is not installed. ORM examples will be skipped.")
+    demo_django = lambda: print("Django is not installed.")
+    demo_django_invalidation = lambda: print("Django is not installed.")
+
+# Run ORM examples when this file is executed directly
+if __name__ == "__main__" and "__ORM_EXAMPLES__" in globals():
+    # Regular examples were already run above
+    
+    print("\n\n=== Running ORM Examples ===")
+    try:
+        # SQLAlchemy examples
+        demo_sqlalchemy()
+        demo_sqlalchemy_invalidation()
+    except Exception as e:
+        print(f"Error in SQLAlchemy examples: {e}")
+    
+    try:
+        # Django examples
+        demo_django()
+        demo_django_invalidation()
+    except Exception as e:
+        print(f"Error in Django examples: {e}")

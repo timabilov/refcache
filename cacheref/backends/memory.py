@@ -65,6 +65,8 @@ class MemoryBackend(CacheBackend):
         Returns:
             True if the key was expired and removed, False otherwise
         """
+
+        # logger.debug("Checking expiry for key %s = %s < %s", key, datetime.datetime.fromtimestamp(self.expires.get(key) , datetime.datetime.now())
         if key in self.expires and self.expires[key] < time.time():
             logger.debug("Key %s expired, removing", key)
             if key in self.data:

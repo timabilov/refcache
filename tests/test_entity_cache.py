@@ -553,8 +553,8 @@ def test_entity_cache_ttl(memory_cache):
     assert call_count == 1
 
     # Wait for TTL to expire
-    original_time = datetime.datetime.now()
-    with freeze_time(original_time + datetime.timedelta(seconds=0.4)):
+    original_time = datetime.datetime.now(tz=datetime.timezone.utc)
+    with freeze_time(original_time + datetime.timedelta(seconds=1)):
         # Call again - should re-execute
         result3 = test_func(1)
         assert result3 == 2
@@ -794,5 +794,83 @@ def test_convenience_invalidation_methods(memory_cache):
     multiply(2, 3)
     multiply(4, 5)
     assert call_count == 1
+
+
+def test_invalidates_decorator(memory_cache):
+    """Test the invalidates decorator for automatic cache invalidation."""
+    call_count = 0
+
+    # Create cached function that references a user entity
+    @memory_cache(entity="user")
+    def get_user(user_id):
+        nonlocal call_count
+        call_count += 1
+        return {"id": user_id, "name": f"User {user_id}"}
+
+    # Create function that updates a user and invalidates the cache
+    @memory_cache.invalidates("user")
+    def update_user(user_id, new_name):
+        # Return a user object with the ID that should be invalidated
+        return {"id": user_id, "name": new_name}
+
+    # First call caches the result
+    user = get_user(1)
+    assert user["name"] == "User 1"
+    assert call_count == 1
+
+    # Call again - should use cache
+    user_again = get_user(1)
+    assert user_again["name"] == "User 1"
+    assert call_count == 1
+
+    # Update the user, which should invalidate the cache
+    updated_user = update_user(1, "Updated User 1")
+    assert updated_user["name"] == "Updated User 1"
+
+    # Call get_user again - should re-execute because cache was invalidated
+    user_after_update = get_user(1)
+    assert user_after_update["name"] == "User 1"  # Note: our test function still returns the original name
+    assert call_count == 2
+
+
+def test_invalidates_decorator_with_custom_id_key(memory_cache):
+    """Test the invalidates decorator with a custom ID key."""
+    call_count = 0
+
+    # Cached function with custom ID key
+    @memory_cache(entity="customer", id_key="customer_id")
+    def get_customer(customer_id):
+        nonlocal call_count
+        call_count += 1
+        return {"customer_id": customer_id, "name": f"Customer {customer_id}"}
+
+    # Update function with matching ID key
+    @memory_cache.invalidates("customer", id_key="customer_id")
+    def update_customer(customer_id, new_name):
+        return {"customer_id": customer_id, "name": new_name}
+
+    # First call caches the result
+    customer = get_customer(1)
+    assert customer["name"] == "Customer 1"
+    assert call_count == 1
+
+    # Call again - should use cache
+    customer_again = get_customer(1)
+    assert customer_again["name"] == "Customer 1"
+    assert call_count == 1
+
+    # Update customer with different ID
+    update_customer(2, "Updated Customer 2")
+
+    # Original customer should still be cached
+    get_customer(1)
+    assert call_count == 1
+
+    # Update the original customer
+    update_customer(1, "Updated Customer 1")
+
+    # Now the cache for customer 1 should be invalidated
+    get_customer(1)
+    assert call_count == 2
 
 

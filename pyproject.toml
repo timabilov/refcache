@@ -27,6 +27,9 @@ mypy = "^1.15.0"
 freezegun = "^1.5.1"
 coverage = "^7.6.12"
 pytest-cov = "^6.0.0"
+sqlalchemy = "^2.0.38"
+django = "4.2.20"
+pytest-django = "^4.10.0"
 [tool.pyright]
 include = ["src"]
 ignore = ["**/typings"]
