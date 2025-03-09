@@ -103,7 +103,7 @@ user = get_user(42)
 @cache.invalidates('user')
 def update_users(user_ids, data):
     # Update in database...
-    # The return value is used to extract entity IDs for invalidation of all functions that this two entities affect
+    # The return value is used to extract entity IDs for invalidation of all function calls that this two entities affect
     return [{"id": user_ids[0], "name": data.get("name")},  {"id": user_ids[1], "name": data.get("name")}]
 
 # Or manually invalidate
@@ -217,8 +217,8 @@ When a function is decorated with `@cache(entity="user")`:
 When an entity changes:
 
 1. You call `cache.invalidate_entity("user", 42)`
-2. The library **finds all cache keys** containing this entity
-3. Only those **specific caches are invalidated**
+2. The library **finds all cache keys** - function signatures containing this entity
+3. Only those **specific caches/function calls are invalidated** 
 
 
 This means you don't need to remember all the different ways an entity might be cached - just invalidate by entity ID, and all relevant caches are automatically cleared.
