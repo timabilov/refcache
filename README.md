@@ -229,7 +229,7 @@ This means you don't need to remember all the different ways an entity might be 
 
 ## Why this library?
 
-Simple caching libraries often lack event-driven invalidation, while ORM-integrated solutions are *tied* to specific frameworks and struggle with non-ORM data like dictionaries or custom objects which still hold entity references! This lightweight library fills that gap.
+Simple caching libraries often lack event-driven invalidation, while ORM-integrated solutions are *tied* to specific frameworks and struggle with non-ORM data like dictionaries or custom objects which still can hold entity references across other services (and is quite common)! This lightweight library fills that gap.
 
 ### ORM limitations
 
