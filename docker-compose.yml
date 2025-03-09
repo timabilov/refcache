@@ -3,7 +3,7 @@ version: '3.8'
 services:
   redis:
     image: redis:latest
-    container_name: refcache-redis
+    container_name: cacheref-redis
     ports:
       - "6379:6379"
     volumes:

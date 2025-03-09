@@ -101,7 +101,7 @@ def update_user(user_id, data):
 
 #### Plain Caching
 
-You can also use refcache as a traditional function cache without entity tracking:
+You can also use cacheref as a traditional function cache without entity tracking:
 
 ```python
 # Simple function cache (no entity tracking)

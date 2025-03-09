@@ -104,7 +104,7 @@ class EntityCache:
         self.backend = backend
         self.ttl: Optional[int] = locked_ttl
         if not isinstance(global_supported_id_types, (list, tuple)):
-            raise ValueError("Failed to initialize refcache. global_supported_id_types must be a list or tuple")
+            raise ValueError("Failed to initialize cacheref. global_supported_id_types must be a list or tuple")
 
         self.supported_primitive_id_types = global_supported_id_types
         self.fail_on_missing_id = fail_on_missing_id
