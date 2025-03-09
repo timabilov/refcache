@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Callable, Tuple, Type, TypeVar, Union
+from typing import Any, Callable, Set, Tuple, Type, TypeVar, Union
 
 T = TypeVar('T')
 KeyType = Union[str, int]
@@ -33,7 +33,7 @@ def item_error(source_func: Callable, item: Any, extractor: IdExtractorType):
 
 def extract_entity_ids(source_func: Callable, result: Any,  id_key: IdExtractorType,
                        supported_id_types: Tuple = (str, int),
-                       fail_on_missing_id: bool = True):
+                       fail_on_missing_id: bool = True) -> Set[Tuple[KeyType]]:
     """
     Extract entity IDs from the result in various formats.
 
@@ -53,7 +53,7 @@ def extract_entity_ids(source_func: Callable, result: Any,  id_key: IdExtractorT
         extractor_list = (id_key,)
 
 
-    ids = set()
+    ids: Set[Tuple] = set()
 
     try:
         if callable(result):
@@ -62,15 +62,15 @@ def extract_entity_ids(source_func: Callable, result: Any,  id_key: IdExtractorT
         if isinstance(result, (list, tuple)):
             # Handle list of objects
             for item in result:
-                extracted_id = _first_result_from_extractors(item, source_func, supported_id_types, extractor_list,
-                                                             fail_on_missing_id)
-                if extracted_id is not None:
+                extracted_id = _populate_ids(item, source_func, supported_id_types, extractor_list,
+                                             fail_on_missing_id)
+                if extracted_id is not None and extracted_id != ():
                     ids.add(extracted_id)
         else:
             # Handle single object
-            extracted_id = _first_result_from_extractors(result, source_func, supported_id_types, extractor_list,
-                                                         fail_on_missing_id)
-            if extracted_id is not None:
+            extracted_id = _populate_ids(result, source_func, supported_id_types, extractor_list,
+                                         fail_on_missing_id)
+            if extracted_id is not None and extracted_id != ():
                 ids.add(extracted_id)
 
     except IdExtractorError:
@@ -83,12 +83,9 @@ def extract_entity_ids(source_func: Callable, result: Any,  id_key: IdExtractorT
             extractor=id_key,
             message=f"Error extracting IDs from {source_func.__name__}: \n{e}"
         ) from e
-    ref_types = set(type(id_) for id_ in ids)
-    if len(ref_types) > 1:
-        logger.warning(f"❗ Extracted IDs have multiple types: {ref_types} in {source_func.__name__}")
     return ids
 
-def _parse_item_id(source_func: Callable, item: Any, supported_id_types: Tuple[Type], extractor: IdExtractorType):
+def _apply_extractor(source_func: Callable, item: Any, supported_id_types: Tuple[Type], extractor: IdExtractorType):
     """This function will try to extract id from entity"""
     if callable(extractor):
         try:
@@ -111,37 +108,35 @@ def _parse_item_id(source_func: Callable, item: Any, supported_id_types: Tuple[T
         raise ValueError(f"Unsupported id_key extractor type {type(extractor)} in {source_func.__name__}, \
                             provide either callable or str as field for key")
 
-def _first_result_from_extractors(item: Any, source_func: Callable, supported_id_types: Tuple[Type],
+def _populate_ids(item: Any, source_func: Callable, supported_id_types: Tuple[Type],
                                   extractor_list: Tuple[Union[str, Callable[[Any], KeyType]]],
-                                  fail_on_missing_id: bool = True):
-    """This function will try to extract any first id from entity/item in order of extractors"""
+                                  fail_on_missing_id: bool = True) -> Tuple[KeyType]:
+    """Extracts primary key (single ID or composite IDs) from an entity using extractors in order"""
+    id_set = list()
     for i, extractor in enumerate(extractor_list):
-        logger.debug(f'Using key_id {extractor} type={type(extractor)} for {item=}')
-        try:
-            extracted_id = _parse_item_id(source_func, item, supported_id_types, extractor)
-            if extracted_id is None:
-                if fail_on_missing_id:
-                    raise ValueError(f"Extract ID is \"None\" from {item}"\
-                                     f" using {extractor_trace(extractor, i)} in {source_func.__name__}")
-                else:
-                    logger.debug("Skipping missing or None extracted_id "\
-                                 f"as fail_on_missing_id=True from {item} using"\
-                                  " {extractor_trace(extractor, i)} in {source_func.__name__}")
-                    continue
-            if isinstance(extracted_id, supported_id_types):
-                return extracted_id
+        logger.debug(f'Using key_id {extractor} {extractor_trace(extractor, i)} for {item=}')
+        # try:
+        extracted_id = _apply_extractor(source_func, item, supported_id_types, extractor)
+        if extracted_id is None:
+            # if user set to fail on missing id, raise error
+            if fail_on_missing_id:
+                raise ValueError(f"Extract ID is \"None\" from {item}"\
+                                    f" using {extractor_trace(extractor, i)} in {source_func.__name__}")
             else:
-                # non supported ID type
-                raise ValueError(
-                    f"{extracted_id=} got unsupported ID value {type(extracted_id)} "\
-                    f"for item {item} in {source_func.__name__}. \nTried {extractor_trace(extractor, i)} "\
-                    f"\nGiven supported_id_types: {supported_id_types}."
-                )
-        except IdExtractorError:
-            logging.debug(f'Skipping failed extractor {extractor} for item {item}', exc_info=True)
-    # could not extract id from *any* extractor
-    if fail_on_missing_id:
-
-        raise item_error(source_func, item, extractor_list)
-
-    return None
+                logger.debug("Skipping missing or None extracted_id "\
+                                f"as fail_on_missing_id=True from {item} using"\
+                                f" {extractor_trace(extractor, i)} in {source_func.__name__}")
+                continue
+        if isinstance(extracted_id, supported_id_types):
+            id_set.append(extracted_id)
+        else:
+            # non supported ID type
+            raise ValueError(
+                f"{extracted_id=} got unsupported ID value {type(extracted_id)} "\
+                f"for item {item} in {source_func.__name__}. \nTried {extractor_trace(extractor, i)} "\
+                f"\nGiven supported_id_types: {supported_id_types}."
+            )
+        # except IdExtractorError:
+        #     logging.debug(f'Skipping failed extractor {extractor} for item {item}', exc_info=True)
+    logger.debug(f"Extracted ID {id_set} from {item} using {extractor_list} in {source_func.__name__}")
+    return tuple(id_set)

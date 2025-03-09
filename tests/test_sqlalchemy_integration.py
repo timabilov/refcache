@@ -1,10 +1,10 @@
 """Tests for SQLAlchemy integration with cacheref."""
 
-from math import pi
 import uuid
-from typing import Optional
+from typing import List, Optional
 
 import pytest
+from sqlalchemy.orm import as_declarative, declared_attr
 
 from cacheref import EntityCache
 from cacheref.backends.memory import MemoryBackend
@@ -67,7 +67,6 @@ class OrderItem(Base):
     def __repr__(self):
         return f"OrderItem(order_id={self.order_id}, product_id={self.product_id})"
 
-from sqlalchemy.orm import as_declarative, declared_attr
 
 # custom base
 
@@ -114,9 +113,10 @@ def db_session():
     product = Product(product_id=101, name="Test Product", price=9.99)
     order = Order(id="order-123", user_id=1, total=19.98)
     order_item = OrderItem(order_id="order-123", product_id=101, quantity=2)
+    order_item_2 = OrderItem(order_id="order-123", product_id=102, quantity=3)
     tag = Tag(id=1, name="Test Tag")
 
-    session.add_all([user, product, order, order_item, tag])
+    session.add_all([user, product, order, order_item, order_item_2, tag])
     session.commit()
 
     yield session
@@ -251,6 +251,93 @@ def test_simple_sqlalchemy_caching(db_session):
     assert call_count == 1  # Still 1, function not called again
 
 
+def test_simple_sqlalchemy_caching_invalidation(db_session):
+    """Test that caching with SQLAlchemy model works correctly."""
+    # Create cache
+    memory_cache: EntityCache = EntityCache(backend=MemoryBackend(key_prefix="sqlalchemy_test:"), debug=True)
+
+    # Counter to track function calls
+    call_count = 0
+
+    # Create cached function using SQLAlchemy model as entity
+    @memory_cache(User)
+    def get_user_by_id(session: Session, user_id: int) -> Optional[User]:
+        nonlocal call_count
+        call_count += 1
+        return session.query(User).filter(User.id == user_id).first()
+
+    # First call should execute the function
+    user: User = get_user_by_id(db_session, 1)
+    assert user is not None
+    assert user.name == "Test User"
+    assert call_count == 1
+
+    # Second call should use the cache
+    user: User = get_user_by_id(db_session, 1)
+    assert user is not None
+    assert user.name == "Test User"
+    assert user.id == 1
+    assert call_count == 1  # Still 1, function not called again
+
+    # Invalidate the cache
+    memory_cache.invalidate_entity(User.__tablename__, 1)
+
+    # Second call should be executed because we invalidated
+    user: User = get_user_by_id(db_session, 1)
+    assert user is not None
+    assert user.name == "Test User"
+    assert user.id == 1
+    assert call_count == 2  # Still 1, function not called again
+
+
+def test_sqlalchemy_caching_composite_invalidation(db_session):
+    """Test that caching with SQLAlchemy model works correctly."""
+    # Create cache
+    memory_cache: EntityCache = EntityCache(backend=MemoryBackend(key_prefix="sqlalchemy_test:"), debug=True)
+
+    # Counter to track function calls
+    call_count = 0
+
+    @memory_cache(OrderItem)
+    def get_order_by_product_id(session: Session, product_id: int) -> List[OrderItem]:
+        nonlocal call_count
+        call_count += 1
+        return session.query(OrderItem).filter(OrderItem.product_id == product_id).all()
+
+    # First call should execute the function
+    ois: List[OrderItem] = get_order_by_product_id(db_session, 101)
+    assert len(ois) == 1, db_session.query(OrderItem).filter(OrderItem.product_id == 101).all()
+    oi = ois[0]
+    assert oi is not None
+    assert oi.quantity == 2
+    assert call_count == 1
+
+    # Second call should use the cache
+    ois: List[OrderItem] = get_order_by_product_id(db_session, 101)
+    assert len(ois) == 1, db_session.query(OrderItem).filter(OrderItem.product_id == 101).all()
+    oi = ois[0]
+    assert oi is not None
+    assert oi.quantity == 2
+    assert call_count == 1
+
+    # Invalidate by one of the key should not affect the cache
+    memory_cache.invalidate_entity(OrderItem.__tablename__, (oi.order_id))
+    ois: List[OrderItem] = get_order_by_product_id(db_session, 101)
+    assert len(ois) == 1, db_session.query(OrderItem).filter(OrderItem.product_id == 101).all()
+    assert call_count == 1
+
+    # Invalidate the cache by proper composite key
+    memory_cache.invalidate_entity(OrderItem.__tablename__, (oi.order_id, oi.product_id))
+
+    # Second call should be executed because we invalidated
+    ois: List[OrderItem] = get_order_by_product_id(db_session, 101)
+    assert len(ois) == 1, db_session.query(OrderItem).filter(OrderItem.product_id == 101).all()
+    oi = ois[0]
+    assert oi is not None
+    assert oi.quantity == 2
+    assert call_count == 2
+
+
 def test_cache_composite_key(db_session):
     """Test that caching with SQLAlchemy model works correctly."""
     # Create cache
@@ -261,20 +348,27 @@ def test_cache_composite_key(db_session):
 
     # Create cached function using SQLAlchemy model as entity
     @memory_cache(OrderItem)
-    def get_order_by_product_id(session: Session, product_id: int) -> Optional[OrderItem]:
+    def get_order_by_product_id(session: Session, product_id: int) -> List[OrderItem]:
         nonlocal call_count
         call_count += 1
         return session.query(OrderItem).filter(OrderItem.product_id == product_id).all()
 
-    ois: OrderItem = get_order_by_product_id(db_session, 101)
+    ois: List[OrderItem] = get_order_by_product_id(db_session, 101)
+    assert len(ois) == 1, db_session.query(OrderItem).filter(OrderItem.product_id == 101).all()
     oi = ois[0]
     assert oi is not None
     assert oi.quantity == 2
     assert call_count == 1
 
     # Second call should use the cache
-    ois: OrderItem = get_order_by_product_id(db_session, 101)
+    ois: List[OrderItem] = get_order_by_product_id(db_session, 101)
     oi = ois[0]
-    assert oi is not None
     assert oi.quantity == 2
     assert call_count == 1
+
+    # Second call should use the cache
+    ois: List[OrderItem] = get_order_by_product_id(db_session, 102)
+    assert len(ois) == 1, db_session.query(OrderItem).filter(OrderItem.product_id == 102).all()
+    oi = ois[0]
+    assert oi.quantity == 3
+    assert call_count == 2

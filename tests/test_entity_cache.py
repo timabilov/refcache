@@ -229,12 +229,13 @@ def test_plain_cache_without_entity(memory_cache):
     """Test using the cache as a plain function cache without entity."""
     call_count = 0
 
-    @cache(entity="user", id_key='id')  # No entity specified
+    @memory_cache()  # No entity specified
     def get_data(data_id):
         nonlocal call_count
         call_count += 1
-        return {"id": 1, "value": f"Data {data_id}"}
+        return {"id": data_id, "value": f"Data {data_id}"}
 
+    assert call_count == 0
     # First call should execute the function
     data1 = get_data(1)
     assert data1["id"] == 1

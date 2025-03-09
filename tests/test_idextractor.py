@@ -11,7 +11,7 @@ def test_extract_entity_ids_simple_dict():
         id_key="id",
         supported_id_types=(str, int)
     )
-    assert ids == {1}
+    assert ids == {(1,)}
 
 
 def test_extract_entity_ids_custom_id_key():
@@ -22,7 +22,7 @@ def test_extract_entity_ids_custom_id_key():
         id_key="user_id",
         supported_id_types=(str, int)
     )
-    assert ids == {123}
+    assert ids == {(123,)}
 
 
 def test_extract_entity_ids_list_of_dicts():
@@ -37,7 +37,7 @@ def test_extract_entity_ids_list_of_dicts():
         id_key="id",
         supported_id_types=(str, int)
     )
-    assert ids == {1, 2, 3}
+    assert ids == {(1,), (2,), (3,)}
 
 
 def test_extract_entity_ids_list_of_flat_values():
@@ -48,7 +48,7 @@ def test_extract_entity_ids_list_of_flat_values():
         id_key='id',  # by defeault it is hidden on cache decorator
         supported_id_types=(str, int)
     )
-    assert ids == {1, 2, 3, 4}
+    assert ids == {(1,), (2,), (3,), (4,)}
 
 
 def test_extract_entity_ids_single_flat_value():
@@ -59,7 +59,7 @@ def test_extract_entity_ids_single_flat_value():
         id_key='id',  # by default it is hidden on cache decorator
         supported_id_types=(str, int)
     )
-    assert ids == {42}
+    assert ids == {(42,)}
 
 
 def test_extract_entity_ids_iterable_id_key(caplog):
@@ -71,7 +71,7 @@ def test_extract_entity_ids_iterable_id_key(caplog):
         id_key=["user_id", "account_id"],
         supported_id_types=(str, int)
     )
-    assert ids == {1}
+    assert ids == {(1, 2)}
 
 
 def test_extract_entity_ids_object_with_attributes():
@@ -87,7 +87,7 @@ def test_extract_entity_ids_object_with_attributes():
         id_key="id",
         supported_id_types=(str, int)
     )
-    assert ids == {99}
+    assert ids == {(99,)}
 
 
 def test_extract_entity_ids_list_of_objects():
@@ -103,7 +103,7 @@ def test_extract_entity_ids_list_of_objects():
         id_key="id",
         supported_id_types=(str, int)
     )
-    assert ids == {1, 2, 3}
+    assert ids == {(1,), (2,), (3,)}
 
 
 def test_extract_entity_ids_unsupported_id_type(caplog):
@@ -120,23 +120,6 @@ def test_extract_entity_ids_unsupported_id_type(caplog):
     assert "<class 'list'>" in str(e.value)
 
 
-
-def test_extract_entity_ids_mixed_types(caplog):
-    """Test extraction from mixed supported types."""
-    ids = extract_entity_ids(
-        source_func=lambda x: x,
-        result=[
-            {"id": 1},
-            {"id": "string-id"},
-            {"id": 3}
-        ],
-        id_key="id",
-        supported_id_types=(str, int)
-    )
-    assert ids == {1, "string-id", 3}
-    assert 'IDs have multiple types' in caplog.text
-
-
 def test_extract_entity_ids_allow_missing_id_key():
     """Test behavior when id_key is missing from some results."""
     ids = extract_entity_ids(
@@ -150,7 +133,7 @@ def test_extract_entity_ids_allow_missing_id_key():
         supported_id_types=(str, int),
         fail_on_missing_id=False
     )
-    assert ids == {1, 3}  # Should only extract existing IDs
+    assert ids == {(1,), (3,)}  # Should only extract existing IDs
 
 
 def test_extract_entity_ids_forbid_missing_id_key():

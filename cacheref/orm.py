@@ -14,16 +14,16 @@ logger = logging.getLogger("cacheref")
 def get_entity_name_and_id_extractor(model_class: Type) -> Tuple[str, Callable]:
     """
     Extract entity name and ID extractor function from an ORM model class.
-    
+
     This function detects whether the provided class is a SQLAlchemy or Django model,
     and returns appropriate entity name and ID extractor.
-    
+
     Args:
         model_class: A SQLAlchemy or Django model class
-        
+
     Returns:
         A tuple of (entity_name, id_extractor_function)
-        
+
     Raises:
         ValueError: If the class is not recognized as an ORM model
     """
@@ -39,7 +39,8 @@ def get_entity_name_and_id_extractor(model_class: Type) -> Tuple[str, Callable]:
     if has_sqlalchemy_attrs:
         try:
             # If it looks like SQLAlchemy, try to use SQLAlchemy
-            import sqlalchemy
+            # TODO use importlib.util.find_spec`?
+            import sqlalchemy  # noqa
             return _get_sqlalchemy_info(model_class)
         except ImportError:
             # It looks like SQLAlchemy but SQLAlchemy isn't installed
@@ -51,7 +52,8 @@ def get_entity_name_and_id_extractor(model_class: Type) -> Tuple[str, Callable]:
     if has_django_attrs:
         try:
             # If it looks like Django, try to use Django
-            import django
+            # TODO use importlib.util.find_spec`?
+            import django # noqa
             return _get_django_info(model_class)
         except ImportError:
             # It looks like Django but Django isn't installed
@@ -83,28 +85,30 @@ def _get_sqlalchemy_info(model_class: Type) -> Tuple[str, Callable]:
     return entity_name, _extract_sqlalchemy_pk
 
 
-def _extract_sqlalchemy_pk(obj: Any) -> Any:
+def _extract_sqlalchemy_pk(model_class: Type) -> Any:
     """Extract primary key from a SQLAlchemy model instance."""
     # Get primary key columns
-    if hasattr(obj, '__table__'):
-        pk_columns = [c.name for c in obj.__table__.primary_key.columns]
+    if hasattr(model_class, '__table__'):
+        pk_columns = [c.name for c in model_class.__table__.primary_key.columns]
 
         if not pk_columns:
-            raise ValueError(f"Model {obj.__class__.__name__} has no primary key")
+            raise ValueError(f"Model {model_class.__class__.__name__} has no primary key")
 
-        # Get the first primary key column
-        pk_name = pk_columns[0]
-
-        # Get the value of this column from the object
-        if hasattr(obj, pk_name):
-            return getattr(obj, pk_name)
-
+        # Get all primary key column values from object
+        id_set = list()
+        for column_name in pk_columns:
+            if hasattr(model_class, column_name):
+                id_set.append(column_name)
+            else:
+                raise ValueError(f"Could not extract primary key from {model_class.__class__.__name__}"\
+                                 f" instance with {pk_columns=}")
+        return id_set
     # Fallback to 'id' attribute which is common
-    if hasattr(obj, 'id'):
-        return obj.id
+    if hasattr(model_class, 'id'):
+        return model_class.id
 
     # If we get here, we couldn't extract the ID
-    raise ValueError(f"Could not extract primary key from {obj.__class__.__name__} instance")
+    raise ValueError(f"Could not extract primary key from {model_class.__class__.__name__} instance")
 
 
 # --- Django Integration ---
@@ -113,15 +117,5 @@ def _get_django_info(model_class: Type) -> Tuple[str, Callable]:
     """Get entity name and ID extractor for a Django model."""
     # Get table name from model's _meta
     entity_name = model_class._meta.db_table
-
-    return entity_name, _extract_django_pk
-
-
-def _extract_django_pk(obj: Any) -> Any:
-    """Extract primary key from a Django model instance."""
-    # Django models always have 'pk' attribute for primary key
-    if hasattr(obj, 'pk'):
-        return obj.pk
-
-    # If we get here, we couldn't extract the ID
-    raise ValueError(f"Could not extract primary key from {obj.__class__.__name__} instance")
+    pk_fields = [field.name for field in model_class._meta.fields if field.primary_key]
+    return entity_name, lambda model_class: pk_fields

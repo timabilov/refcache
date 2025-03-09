@@ -98,7 +98,7 @@ def test_id_extraction_string_pk_model(enable_django):
 @pytest.mark.django_db
 def test_id_extraction_composite_pk_model(enable_django):
     """Test ID extraction from a model instance with composite primary key.
-    
+
     Note: Django doesn't truly support composite primary keys, so this actually
     tests that the standard ID is extracted even for models with unique_together.
     """

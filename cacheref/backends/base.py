@@ -68,6 +68,18 @@ class CacheBackend:
         """
         raise NotImplementedError("Backend must implement delete()")
 
+    def ttl(self, key: str) -> int:
+        """
+        Get the time-to-live for a key.
+
+        Args:
+            key: The key to check
+
+        Returns:
+            Time-to-live in seconds or -2 if key does not exist
+        """
+        raise NotImplementedError("Backend must implement ttl()")
+
     def keys(self, pattern: str) -> List[str]:
         """
         Find keys matching pattern.

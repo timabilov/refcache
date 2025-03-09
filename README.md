@@ -49,7 +49,7 @@ This ensures fresh records with real-time update & synchronization support.
 - 📋 **Custom ID Fields**: Support for entities with non-standard ID field names
 - 🔒 **Custom Serialization**: Cache objects that aren't JSON-serializable
 - 🔄 **Cross-Service Compatible**: Share cache references between different services with simple invalidation triggers
-- 🧩 **ORM Integration**: Direct support for SQLAlchemy and Django models with automatic primary key extraction
+- 🧩 **ORM Integration**: Optional support for SQLAlchemy and Django models with automatic primary key extraction
 
 ## Installation
 
@@ -147,6 +147,7 @@ Cacheref supports direct integration with SQLAlchemy and Django ORM models. You 
 > Note: 
 > * Pickle is used as default serializer/deserializer. It can be customized
 > * Retrieved ORM objects are detached from their original database session.
+> * Dependency/Relations of entities are not tracked.
 
 #### SQLAlchemy Integration
 
@@ -174,6 +175,10 @@ def update_user(user_id, name):
     user.name = name
     session.commit()
     return user
+
+# For manually resetting entity pass table name
+# for composite key pass tuple
+cache.invalidate_entity(User.__table__, user_id)  
 ```
 
 #### Django Integration
@@ -220,7 +225,7 @@ This means you don't need to remember all the different ways an entity might be 
 
 >❗ To ensure cache consistency across the system, please bear in mind these rules:
 >* Maintain idempotency across all functions using the same cache key (cache key being - function or entity signature)
->*  Ensure entity identity consistency - an entity with a specific ID must represent the identical data object across all system components.
+>* Ensure entity identity consistency - an entity with a specific ID must represent the identical data object across all system components.
 
 ## Why this library?
 
@@ -399,7 +404,7 @@ def update_user(user_id, data):
     user = session.query(User).get(user_id)  # or User.objects.get(id=user_id)
     user.name = data.get("name")
     session.commit()  # or user.save()
-    return user
+    return user # it invalidates this user cache
 ```
 ### Invalidation Methods
 
