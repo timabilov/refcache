@@ -17,7 +17,10 @@ This ensures fresh records with real-time update & synchronization support.
     - [Plain Caching](#plain-caching)
   - [Custom ID Fields](#custom-id-fields)
 - [How It Works](#how-it-works)
-- [Why not basic cache libraries?](#why-not-basic-cache-libraries)
+- [Why this library?](#why-this-library)
+  - [ORM limitations](#orm-limitations)
+  - [Write-Through vs. Read-Through Tradeoffs](#write-through-vs-read-through-tradeoffs)
+  - [What it does?](#what-it-does)
 - [Advanced Usage](#advanced-usage)
   - [Cross-Service Caching](#cross-service-caching)
   - [Custom Entity Extraction (TODO)](#custom-entity-extraction-todo)
@@ -141,9 +144,22 @@ This means you don't need to remember all the different ways an entity might be 
 >* Maintain idempotency across all functions using the same cache key (cache key being - function or entity signature)
 >*  Ensure entity identity consistency - an entity with a specific ID must represent the identical data object across all system components.
 
-## Why not basic cache libraries?
+## Why this library?
 
-Most of the basic libraries do not track event-driven changes for invalidation as they donot need to. And even though there are a lot of ORM powered cache libraries with somewhat granular invalidation support, it is not scaled for any primitive data struct, especially when we are dealing with *simple* interservice communication.
+Simple caching libraries often lack event-driven invalidation, while ORM-integrated solutions are *tied* to specific frameworks and struggle with non-ORM data like dictionaries or custom objects which still hold entity references! This lightweight library fills that gap.
+
+### ORM limitations
+
+Unlike ORM-specific caching tools, this library supports any data format—Django models, SQLAlchemy objects, or plain dictionaries—without tying you to a framework. It abstracts ORM internals, enabling caching and invalidation with just a data reference.
+
+
+### Write-Through vs. Read-Through Tradeoffs
+
+Write-through caching ensures consistency but couples your code to the cache layer. Basic read-through caching risks staleness. This library combines read-through caching with event-driven invalidation for near real-time consistency without lock-in.
+
+### What it does?
+
+It basically helps you to both do read-through cache of your functions, by being able to invalidate them on  as *any* entity inside of them gets invalidated as long as you give reference. Integrate seamlessly into existing codebases, supporting any data structure(DjangoORM, SqlAchemy or even basic list of dictionaries) with minimal overhead. With that, you get almost same consistency as write-through.
 
 ## Advanced Usage
 
