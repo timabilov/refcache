@@ -567,6 +567,7 @@ poetry install
 ## TODO
 - [ ] Automatic ORM model detection, @cache.orm()
 - [ ] Refactory & Cleanup
+- [ ] Stale refs sweep scheduler / CLI comand
 - [ ] Tests
 
 ## License
