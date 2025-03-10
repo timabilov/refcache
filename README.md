@@ -254,11 +254,11 @@ Unlike ORM-specific caching tools, this library supports any data format—Djang
 
 ### Write-Through vs. Read-Through Tradeoffs
 
-Write-through caching keeps data consistent but couples your read and cache layers together, complicating each read component in a different way. On the other side, plain read-through caching can leave you with stale data. This library blends read-through caching with event-driven invalidation to deliver near real-time consistency, consistency without lock-in.
+Write-through caching keeps data consistent but couples your read and cache layers together, complicating each read component in a different way. On the other side, plain read-through caching can leave you with stale data. This library blends read-through caching with event-driven invalidation to deliver near real-time consistency, without lock-in.
 
 ### What it does?
 
-This library provides the classic read-through caching decorator for your functions with significant enhancement. But, when an entity referenced in those specific function calls is updated, the cache can be easily invalidated either automatically or manually, as long as you provide the reference to track it. It integrates easily into your existing codebase—unlike write-through caching—and supports a wide range of data structures, including Django ORM models, SQLAlchemy objects, or basic lists of dictionaries, with minimal overhead. This approach allows to use write-around caching very effectively by tracking all invalidation points across your platform while maintaining the same flexibility of read-through cache
+This library provides the classic and convenient read-through caching decorator for your functions with significant enhancement. When an entity referenced in those specific function calls is updated, the cache can be easily invalidated either automatically or manually, as long as you provide the reference to track it. It integrates easily into your existing codebase—unlike write-through caching—and supports a wide range of data structures, including Django ORM models, SQLAlchemy objects, or basic lists of dictionaries, with minimal overhead. This approach allows to use write-around caching very effectively by tracking all invalidation points across your platform while maintaining the same flexibility of read-through cache
 
 ## Advanced Usage
 
