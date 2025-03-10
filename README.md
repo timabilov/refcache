@@ -4,7 +4,9 @@
 
 #### Entity driven read-through cache decorator tailored and optimized for event-driven invalidations 🚀
 
-This ensures fresh records with real-time update & synchronization support.
+You can think of it as plain cache decorator but with steroids 💊 It ensures fresh records with real-time update & synchronization support by using same old decorator.
+
+To understand its mechanics, see [How It Works](#how-it-works) and Check [Why this library?](#why-this-library)
 
 > Note: This project is under active development. Use with caution.
 
@@ -158,7 +160,7 @@ def get_customer_callable_id(customer_id):
 
 ### ORM Integration
 
-Cacheref supports direct integration with SQLAlchemy and Django ORM models. You can pass model classes directly to the `entity` parameter, and cacheref will automatically extract table names and primary keys even composite ones.
+Cacheref doesn’t interact closely with ORM internals by still being able to cache almost any of your query results. Just send  model classes as entity to SQLAlchemy or Django ORM and it will extract entity name and primary keys (or composite)  without needing extensive integration. This approach helps it remain lightweight and independent of those libraries!
 
 > Note: 
 > * Pickle is used as default serializer/deserializer. It can be customized
@@ -237,7 +239,7 @@ When an entity changes:
 3. Only those **specific caches/function calls are invalidated** 
 
 
-This means you don't need to remember all the different ways an entity might be cached - just invalidate by entity ID, and all relevant caches are automatically cleared.
+This means you don't need to remember all the different ways an entity might be cached and change your 'read' codebase - just invalidate by entity ID, and all relevant caches are automatically cleared.
 
 >❗ To ensure cache consistency across the system, please bear in mind these rules:
 >* Maintain idempotency across all functions using the same cache key (cache key being - function or entity signature)
