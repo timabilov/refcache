@@ -258,7 +258,7 @@ Write-through caching keeps data consistent but couples your read and cache laye
 
 ### What it does?
 
-This library offers the same standard read-through caching decorator for your functions. But, when an entity referenced in those functions is updated, the cache can be easily invalidated either automatically or manually, as long as you provide the reference to track it. It integrates easily into your existing codebase—unlike write-through caching—and supports a wide range of data structures, including Django ORM models, SQLAlchemy objects, or basic lists of dictionaries, with minimal overhead. This approach allows to use write-around caching very effectively by tracking all invalidation points across your platform while maintaining the same flexibility of read-through cache
+This library provides the classic read-through caching decorator for your functions with significant enhancement. But, when an entity referenced in those specific function calls is updated, the cache can be easily invalidated either automatically or manually, as long as you provide the reference to track it. It integrates easily into your existing codebase—unlike write-through caching—and supports a wide range of data structures, including Django ORM models, SQLAlchemy objects, or basic lists of dictionaries, with minimal overhead. This approach allows to use write-around caching very effectively by tracking all invalidation points across your platform while maintaining the same flexibility of read-through cache
 
 ## Advanced Usage
 
