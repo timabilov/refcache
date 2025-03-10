@@ -680,6 +680,31 @@ def test_entity_cache_custom_id_key(memory_cache):
     assert customer1_refetch["customer_id"] == 1
     assert call_count == 2
 
+def test_entity_cache_custom_id_key_lambda(memory_cache):
+    """Test using a custom ID field for entity tracking."""
+    call_count = 0
+
+    @memory_cache(entity="customer", id_key=lambda item: item["customer_id"])
+    def get_customer(customer_id):
+        nonlocal call_count
+        call_count += 1
+        return {"customer_id": customer_id, "name": f"Customer {customer_id}"}
+
+    # First call should execute the function
+    customer1 = get_customer(1)
+    assert customer1["customer_id"] == 1
+    assert call_count == 1
+
+    # Second call with same args should use cache
+    customer1_again = get_customer(1)
+    assert customer1_again["customer_id"] == 1
+    assert call_count == 1
+
+    # Invalidate customer 1 and verify it causes a re-fetch
+    memory_cache.invalidate_entity("customer", 1)
+    customer1_refetch = get_customer(1)
+    assert customer1_refetch["customer_id"] == 1
+    assert call_count == 2
 
 def test_entity_cache_extraction_from_list(memory_cache):
     """Test extracting entity IDs from a list of objects."""

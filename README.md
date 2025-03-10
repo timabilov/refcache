@@ -134,10 +134,26 @@ cache.invalidate_func(calculate_value)
 ### Custom ID Fields
 
 ```python
+
 @cache(entity="customer", id_key="customer_id")
 def get_customer(customer_id):
     # Your database query here
     return {"customer_id": customer_id, "name": f"Customer {customer_id}"}
+
+@cache(entity="transaction", id_key=("product_id", "user_id"))  # composite id fields supported
+def get_user_transactions(user_id):
+    # Your database query here
+    return [
+        {"product_id": 1, "user_id": user_id, "value": 20.54},
+        {"product_id": 2, "user_id": user_id, "value": 30.54}
+    ]
+
+@cache(entity="customer", id_key=lambda item: item["customer_id"])
+def get_customer_callable_id(customer_id):
+    # Your database query here
+    return {"customer_id": customer_id, "name": f"Customer {customer_id}"}
+
+
 ```
 
 ### ORM Integration
@@ -212,7 +228,7 @@ When a function is decorated with `@cache(entity="user")`:
 
 1. The decorator **caches the function result**
 2. It **extracts entity reference IDs** from the result (e.g., `{"id": 42, ...}`
-3. It **creates an reverse index** mapping for each entity to cache function keys containing it
+3. It **creates an reverse index** mapping for each entity to cache specific **function calls** containing it
 
 When an entity changes:
 
