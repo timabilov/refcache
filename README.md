@@ -264,7 +264,7 @@ This library provides the classic and convenient read-through caching decorator 
 
 ### Cross-Service Caching
 
-Nothing special needed here. As an example, given that you use same prefix in all of your services, on update of the particular user - cache is able to identify all function call points that it needs to invalidate for a given user.
+No special treatment needed, it just works! As an example, given that you use same prefix in all of your services, on update of the particular user - cache is able to identify all function call points that it needs to invalidate for a given user.
 
 
 ```python
