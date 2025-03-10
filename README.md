@@ -272,19 +272,20 @@ No special treatment needed, it just works! As an example, given that you use sa
 
 UserEntity = "user"
 @cache(entity=UserEntity)
-def get_user(user_id):
+def get_user_from_auth(user_id):
+    # get data from service C or any source basically
     return {"id": user_id, "name": "Sam Jones"}
 
-get_user(1)
+get_user_from_auth(1)
 
 # In service B
 UserEntity = "user"
 @cache(entity=UserEntity)
-def fetch_user(some_user_filter):  # Completely different function
+def get_filtered_user(some_user_filter):  # Completely different function
     # id is 1 as a result of filter
     return {"id": 1, "name": "Sam Jones"} 
 
-fetch_user({'name': 'Sam Jones'})
+get_filtered_user({'name': 'Sam Jones'})
 
 # In any of your services
 
