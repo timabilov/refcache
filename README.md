@@ -2,7 +2,7 @@
 <!-- COVERAGE_BADGE -->
 [![Coverage](https://img.shields.io/badge/coverage-83%25-brightgreen)](https://github.com/timabilov/refcache)
 
-#### Cache decorator optimized for entity-event-driven & precision-targeted invalidation 🚀
+#### Read-through like cache decorator tailored and optimized for entity-event-driven invalidations 🚀
 
 This ensures fresh records with real-time update & synchronization support.
 
