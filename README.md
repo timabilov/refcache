@@ -563,6 +563,11 @@ poetry install
 
 ```
 
+## TODO
+- [ ] Automatic ORM model detection, @cache.orm()
+- [ ] Refactory & Cleanup
+- [ ] Tests
+
 ## License
 
 MIT
