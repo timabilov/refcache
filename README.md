@@ -30,7 +30,6 @@ To understand its mechanics, see [How It Works](#how-it-works) and Check [Why th
   - [What it does?](#what-it-does)
 - [Advanced Usage](#advanced-usage)
   - [Cross-Service Caching](#cross-service-caching)
-  - [Custom Entity Extraction (TODO)](#custom-entity-extraction-todo)
   - [Custom Serialization](#custom-serialization)
 - [API Reference](#api-reference)
   - [EntityCache](#entitycache)
@@ -49,7 +48,7 @@ To understand its mechanics, see [How It Works](#how-it-works) and Check [Why th
 
 - 🔑 **Smart Invalidation**: Instantly clears all function caches tied to an entity’s footprint
 - 📋 **Custom ID Fields**: Support for entities with non-standard/composite ID field names
-- 🔒 **Custom Serialization**: Cache objects that aren't JSON-serializable
+- 🔒 **Custom Backend**: Custom backend support with Built-in Redis/Memory backends 
 - 🔄 **Cross-Service Compatible**: Designed to play nice across services with traditional and simple payloads
 - 🧩 **ORM Integration**: Optional support for SQLAlchemy and Django models with auto primary key extraction
 
