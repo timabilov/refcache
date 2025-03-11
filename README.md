@@ -183,7 +183,7 @@ class User(Base):
 # Pass the model class directly - no need to specify entity name or id_key
 @cache.tracks(User)
 def get_user(user_id):
-    return session.query(User).get(user_id)  # it can return list too
+    return session.query(User).get(user_id)  # you can return list too
 
 # Automatically invalidates cache based on primary key
 @cache.invalidates(User)
@@ -191,7 +191,7 @@ def update_user(user_id, name):
     user = session.query(User).get(user_id)
     user.name = name
     session.commit()
-    return user
+    return user # if list is provided, it invalidates all items
 
 # For manually resetting entity pass table name
 # for composite key pass tuple
@@ -220,7 +220,7 @@ class Article(models.Model):
 # Pass the model class directly - no need to specify entity name or id_key
 @cache.tracks(Article)
 def get_article(article_id):
-    return Article.objects.get(id=article_id) # it can return list too
+    return Article.objects.get(id=article_id) # you can return list too
 
 # Automatically invalidates cache based on primary key
 @cache.invalidates(Article)
@@ -228,7 +228,7 @@ def update_article(article_id, title):
     article = Article.objects.get(id=article_id)
     article.title = title
     article.save()
-    return article
+    return article # if list is provided, it invalidates all items
 ```
 
 The ORM integration is optional - SQLAlchemy and Django are not required dependencies.
