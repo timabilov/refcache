@@ -307,7 +307,7 @@ cache.invalidate("user", 1)
 
 ```
 
-> Note: Optionally if you want to share the *same* cache result between functions use `cache_key`, but in this case make sure to keep them idempotent
+> 💡 Note: Optionally if you want to share the *same* cache result between functions use `cache_key`, but in this case make sure to keep them idempotent
 
 ### Custom Entity Extraction (TODO)
 
