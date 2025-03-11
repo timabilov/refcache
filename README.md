@@ -4,7 +4,7 @@
 
 #### Entity driven read-through cache decorator tailored and optimized for event-driven invalidations 🚀
 
-You can think of it as plain cache decorator but with steroids 💊 It ensures fresh records with real-time update & synchronization support by using same old decorator.
+You can think of it as old good cache decorator but with steroids 💊. It ensures fresh records with real-time update & synchronization support across your ecosystem without extra effort.
 
 To understand its mechanics, see [How It Works](#how-it-works) and Check [Why this library?](#why-this-library)
 
