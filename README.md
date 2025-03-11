@@ -197,6 +197,18 @@ def update_user(user_id, name):
 # For manually resetting entity pass table name
 # for composite key pass tuple
 cache.invalidate_entity(User.__table__, user_id)  
+
+
+
+# Complex queries
+
+# Here we explicitly *have* to say that we stick to order entity to be tracked for changes
+@memory_cache(Order, id_key=lambda item: item[0].id)
+def get_orders_with_user(session: Session, order_id: str) -> List[Row[Tuple[Order, User]]]:
+    nonlocal call_count
+    call_count += 1
+    return session.query(Order, User).join(User).filter(Order.id == order_id).all()
+
 ```
 
 #### Django Integration
@@ -355,6 +367,7 @@ Main class for creating cache decorators.
 ```python
 cache = EntityCache(
     backend=None,  # CacheBackend instance (optional, will use in-memory if None)
+    global_supported_id_types=(int, str, UUID)  # Tuple of primitive types that are considered valid entity IDs.
     locked_ttl=3600,  # Default locked TTL in seconds, in case if set, decorator cannot override this value (optional)
     fail_on_missing_id=True, # Raise an error if an ID cannot be extracted from the result
     serializer=json.dumps,  # Custom serializer function (optional)
@@ -375,7 +388,8 @@ The traditional decorator for caching function results:
 ```python
 @cache(
     entity="user",  # Type of entity returned (string) or ORM model class (optional)
-    id_key="id",  # Field name or callable resolved to entity ID, not relevant on flat lists (optional)
+    id_key=None,  # default = 'id'. Field name or callable resolved to entity ID, not relevant on flat lists (optional)
+    supported_id_types = (int, str, UUID) # Types that are treated as valid entity IDs when extracted
     cache_key=None,  # Custom cache key for function (optional)
     normalize_args=False,  # Whether to normalize arguments (optional)
     ttl=None,  # Override default TTL, raises error if locked_ttl is set (optional)
@@ -404,24 +418,7 @@ def get_article(article_id):
 
 #### @cache.tracks()
 
-A more expressive alias for `@cache()` that clearly communicates the function's results will be cached and entity references will be tracked:
-
-```python
-@cache.tracks(
-    entity="user",  # Type of entity returned by this function (string or ORM model class)
-    id_key="id",    # How to extract entity IDs from results
-    # All other parameters from @cache() are supported
-)
-def get_user(user_id):
-    # ...
-
-# With ORM model class
-from myapp.models import User  # SQLAlchemy or Django model
-
-@cache.tracks(User)  # Automatically uses table name and extracts primary key
-def get_user(user_id):
-    # ...
-```
+A more expressive alias for `@cache()`
 
 #### @cache.invalidates()
 
@@ -568,7 +565,9 @@ poetry install
 
 ## TODO
 - [ ] Automatic ORM model detection, @cache.orm()
-- [ ] Refactory & Cleanup
+- [ ] MyPy Refactory & Cleanup
+- [ ] Introduce proper reverse index interface to not lock into Redis OSS comp
+- [ ] * By default RedisCompReverser should be used with multi-exec capability
 - [ ] Stale refs sweep scheduler / CLI comand
 - [ ] Tests
 

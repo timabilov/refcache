@@ -90,12 +90,12 @@ class EntityCache:
     def __init__(
         self,
         backend: Optional[CacheBackend] = None,
+        global_supported_id_types: Optional[Tuple] = (int, str, UUID),
         locked_ttl: Optional[int] = None,
         fail_on_missing_id: bool = True,
         serializer: Optional[Callable] = None,
         deserializer: Optional[Callable] = None,
         debug: bool = False,
-        global_supported_id_types: Optional[Tuple] = (int, str, UUID),
         enabled: bool = True,
     ):
         """
@@ -561,8 +561,8 @@ class EntityCache:
                     logger.debug("[Reverse index] Recache ready to execute")
                 else:
                     logger.debug("[Reverse index] Skipping reverse index recache"\
-                                 " for as either no entity or result is empty"\
-                                 f"{func=} {entity=} {fn_result=}")
+                                 f" for {func=} as either no entity or result is empty"\
+                                 f" {entity=} {fn_result=}")
                 pipeline.execute()
             except Exception as e:
                 logger.warning("Cache backend operations failed: %s", e, exc_info=True)

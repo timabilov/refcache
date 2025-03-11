@@ -1,9 +1,10 @@
 """Tests for SQLAlchemy integration with cacheref."""
 
 import uuid
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import pytest
+from sqlalchemy import Row
 from sqlalchemy.orm import as_declarative, declared_attr
 
 from cacheref import EntityCache
@@ -365,4 +366,54 @@ def test_cache_composite_key(db_session):
     assert len(ois) == 1, db_session.query(OrderItem).filter(OrderItem.product_id == 102).all()
     oi = ois[0]
     assert oi.quantity == 3
+    assert call_count == 2
+
+
+def test_cache_pair_of_objects_by_join(db_session):
+    """Test that caching with SQLAlchemy model works correctly."""
+    # Create cache
+    memory_cache = EntityCache(backend=MemoryBackend(key_prefix="sqlalchemy_test:"), debug=True)
+
+    # Counter to track function calls
+    call_count = 0
+
+    # Create cached function that selects product as entity for reference from returned pairs
+    @memory_cache(Order, id_key=lambda item: item[0].id)
+    def get_orders_with_user(session: Session, order_id: str) -> List[Row[Tuple[Order, User]]]:
+        nonlocal call_count
+        call_count += 1
+        return session.query(Order, User).join(User).filter(Order.id == order_id).all()
+    order_id = "order-123"
+    orders_with_user: List[Row[Tuple[Order, User]]] = get_orders_with_user(db_session, order_id)
+    assert len(orders_with_user) == 1, db_session.query(Product).filter(Product.product_id == order_id).all()
+    order, user = orders_with_user[0]
+    assert order is not None
+    assert order.id == order_id
+    assert order.user_id == 1
+    assert user is not None
+    assert user.id == 1
+    assert user.name == "Test User"
+    assert call_count == 1
+    # Second call should use the cache
+    orders_with_user: List[Row[Tuple[Order, User]]] = get_orders_with_user(db_session, order_id)
+    assert len(orders_with_user) == 1, db_session.query(Product).filter(Product.product_id == order_id).all()
+    order, user = orders_with_user[0]
+    assert order is not None
+    assert order.id == order_id
+    assert order.user_id == 1
+    assert user is not None
+    assert user.id == 1
+    assert user.name == "Test User"
+    assert call_count == 1
+    # Third call after invalidation should call the function
+    memory_cache.invalidate_entity(Order.__tablename__, order_id)
+    orders_with_user: List[Row[Tuple[Order, User]]] = get_orders_with_user(db_session, order_id)
+    assert len(orders_with_user) == 1, db_session.query(Product).filter(Product.product_id == order_id).all()
+    order, user = orders_with_user[0]
+    assert order is not None
+    assert order.id == order_id
+    assert order.user_id == 1
+    assert user is not None
+    assert user.id == 1
+    assert user.name == "Test User"
     assert call_count == 2
