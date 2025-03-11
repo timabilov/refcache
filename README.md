@@ -562,7 +562,7 @@ poetry install
 
 ## TODO
 - [ ] Automatic ORM model detection, @cache.orm()
-- [ ] Better api naming. @cache.invalidate_on(entity="user"), or @cache().tracks("user")
+- [ ] Better api naming. @cache.invalidate_on(entity="user"), or @cache().tracks("user") or @cache.with_tracking etc
 - [ ] MyPy Refactory & Cleanup
 - [ ] Introduce proper reverse index interface to not lock into Redis OSS comp
 - [ ] * By default RedisCompReverser should be used with multi-exec capability
