@@ -377,7 +377,7 @@ def test_cache_pair_of_objects_by_join(db_session):
     # Counter to track function calls
     call_count = 0
 
-    # Create cached function that selects product as entity for reference from returned pairs
+    # Create cached function that selects order as entity for reference from returned pairs
     @memory_cache(Order, id_key=lambda item: item[0].id)
     def get_orders_with_user(session: Session, order_id: str) -> List[Row[Tuple[Order, User]]]:
         nonlocal call_count

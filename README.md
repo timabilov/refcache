@@ -205,8 +205,6 @@ cache.invalidate_entity(User.__table__, user_id)
 # Here we explicitly *have* to say that we stick to order entity to be tracked for changes
 @memory_cache(Order, id_key=lambda item: item[0].id)
 def get_orders_with_user(session: Session, order_id: str) -> List[Row[Tuple[Order, User]]]:
-    nonlocal call_count
-    call_count += 1
     return session.query(Order, User).join(User).filter(Order.id == order_id).all()
 
 ```
