@@ -46,7 +46,7 @@ To understand its mechanics, see [How It Works](#how-it-works) and Check [Why th
 
 ## Features
 
-- 🔑 **Smart Invalidation**: Instantly clears all function caches tied to an entity’s footprint
+- 🔑 **Smart Invalidation**: Instantly clears all unique function call caches tied to an entity’s footprint
 - 📋 **Custom ID Fields**: Support for entities with non-standard/composite ID field names
 - 🔒 **Custom Backend**: Custom backend support with Built-in Redis/Memory backends 
 - 🔄 **Cross-Service Compatible**: Designed to play nice across services with traditional and simple payloads
@@ -292,16 +292,16 @@ get_user_from_auth(1)
 # In service B
 UserEntity = "user"
 @cache(entity=UserEntity)
-def get_filtered_user(some_user_filter):  # Completely different function
-    # id is 1 as a result of filter
-    return {"id": 1, "name": "Sam Jones"} 
+def get_filtered_users(user_ids):  # Completely different function, but same logical entities
+    
+    return [{"id": user_ids[0], "name": "Sam Jones"}, {"id": user_ids[2], "name": "Another Sam Jones"}]
 
-get_filtered_user({'name': 'Sam Jones'})
+get_filtered_user([1, 2])
 
 # In any of your services
 
 # Given that your key_prefix is same everywhere,
-# it will invalidate all function calls in your platform where it returned user with ID of 1.
+# it will invalidate *all* function calls in your platform where it returned user with ID of 1.
 # see @cache.invalidates for more
 cache.invalidate("user", 1)
 
