@@ -237,18 +237,18 @@ The ORM integration is optional - SQLAlchemy and Django are not required depende
 
 When a function is decorated with `@cache(entity="user")`:
 
-1. The decorator **caches the function result**
+1. The decorator **caches the function result as we know it, nothing fancy*
 2. It **extracts entity reference IDs** from the result (e.g., `{"id": 42, ...}`
 3. It **creates an reverse index** mapping for each entity to cache specific **function calls** containing it
 
 When an entity changes:
 
-1. You call `cache.invalidate_entity("user", 42)`
-2. The library **finds all cache keys** - function signatures containing this entity
+1. You call `cache.invalidate_entity("user", 42)` (see examples for more)
+2. The library **finds all cache keys** - function calls that decorated with `@cache()` containing this entity whether it list or single value (see specifications)
 3. Only those **specific caches/function calls are invalidated** 
 
 
-This means you don't need to remember all the different ways an entity might be cached and change your 'read' codebase - just invalidate by entity ID, and all relevant caches are automatically cleared.
+Effectively, you end up using traditional caches that can be granularly invalidated within your ecosystem. This means you don't need to remember all the different ways an entity might be cached and change your 'read' codebase - just invalidate by entity ID, and all relevant caches are automatically cleared.
 
 >❗ To ensure cache consistency across the system, please bear in mind these rules:
 >* Maintain idempotency across all functions using the same cache key (cache key being - function or entity signature)
