@@ -296,7 +296,7 @@ def get_filtered_users(user_ids):  # Completely different function, but same log
     
     return [{"id": user_ids[0], "name": "Sam Jones"}, {"id": user_ids[2], "name": "Another Sam Jones"}]
 
-get_filtered_user([1, 2])
+get_filtered_user([1, 2]) # after caching this call, we know id=1 links to this and above `get_user_from_auth` call
 
 # In any of your services
 
@@ -562,6 +562,7 @@ poetry install
 
 ## TODO
 - [ ] Automatic ORM model detection, @cache.orm()
+- [ ] Better api naming. @cache.invalidate_on(entity="user"), or @cache().tracks("user")
 - [ ] MyPy Refactory & Cleanup
 - [ ] Introduce proper reverse index interface to not lock into Redis OSS comp
 - [ ] * By default RedisCompReverser should be used with multi-exec capability
