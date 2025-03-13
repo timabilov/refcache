@@ -235,10 +235,16 @@ The ORM integration is optional - SQLAlchemy and Django are not required depende
 
 ## How It Works
 
+### Use-case
+
+Let's say you have a lot of functions, all centered around returning same logical `User` entity, but in different shape and forms. All of them returns same `User` data.
+
+Now, imagine caching the varied outputs of these functions while maintaining invalidation control: when a User changes, you want all related caches (unique function calls) to clear automatically, guided by events - a.k.a implement event-driven invalidation. Here, we cannot use basic cache decorator libraries as they lack the ability to link functions to the entities they involve. This is where this library got you covered.
+
 When a function is decorated with `@cache(entity="user")`:
 
-1. The decorator **caches the function result as we know it, nothing fancy*
-2. It **extracts entity reference IDs** from the result (e.g., `{"id": 42, ...}`
+1. The decorator **caches the function result as we know it*
+2. It **extracts entity reference IDs** from any result (e.g., `{"id": 42, ...}` or list of `User`s)
 3. It **creates an reverse index** mapping for each entity to cache specific **function calls** containing it
 
 When an entity changes:
@@ -248,7 +254,7 @@ When an entity changes:
 3. Only those **specific caches/function calls are invalidated** 
 
 
-Effectively, you end up using traditional caches that can be granularly invalidated within your ecosystem. This means you don't need to remember all the different ways an entity might be cached and change your 'read' codebase - just invalidate by entity ID, and all relevant caches are automatically cleared.
+Effectively, you end up using traditional cache decorator that can be granularly invalidated within your ecosystem giving you near real-time data consistency. This means you don't need to remember all the different ways an entity might be cached and glue that into your read codebase - just invalidate by entity ID, and all relevant caches are automatically cleared.
 
 >❗ To ensure cache consistency across the system, please bear in mind these rules:
 >* Maintain idempotency across all functions using the same cache key (cache key being - function or entity signature)
@@ -287,7 +293,7 @@ def get_user_from_auth(user_id):
     # get data from service C or any source basically
     return {"id": user_id, "name": "Sam Jones"}
 
-get_user_from_auth(1)
+get_user_from_auth(1) # cached now, and "user" = 1 now references function with this parameter
 
 # In service B
 UserEntity = "user"
@@ -296,7 +302,7 @@ def get_filtered_users(user_ids):  # Completely different function, but same log
     
     return [{"id": user_ids[0], "name": "Sam Jones"}, {"id": user_ids[2], "name": "Another Sam Jones"}]
 
-get_filtered_user([1, 2]) # after caching this call, we know id=1 links to this and above `get_user_from_auth` call
+get_filtered_user([1, 2]) # after caching this call, we know id=1 links to this and above `get_user_from_auth(1)` call
 
 # In any of your services
 
