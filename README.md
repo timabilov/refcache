@@ -95,6 +95,7 @@ memory_cache = EntityCache()
 @cache('user') # "user" - is entity used later *only for invalidation*
 def get_user(user_id):
     # Your database/interservice query here
+    # 'id' is default id_key for tracking so-called 'user' entity
     return {"id": user_id, "name": f"User {user_id}"}
 
 # Get user (will be cached)
