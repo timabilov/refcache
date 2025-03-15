@@ -195,8 +195,8 @@ class EntityCache:
         Main decorator that caches function results.
 
         Args:
-            entity: The primary entity type this function deals with. Can be:
-                  - String: Entity type name (e.g., 'user', 'product')
+            entity: The entity type that appears in this function's results, used for later invalidations. Can be:
+                  - String: Entity tagged name (e.g., 'user', 'product')
                   - Class: SQLAlchemy or Django ORM model class (e.g., User, Product)
                   Used for cache invalidation when entities of this type are modified.
             id_key: How to extract entity IDs from function results for cache invalidation.
@@ -206,8 +206,8 @@ class EntityCache:
                   - Tuple of (str, callable): tries string access first, falls back to callable
                   Default is 'id'. If entity is an ORM model class, this is automatically set
                   to extract the primary key from model instances.
-            cache_key: Optional custom key prefix for the cache to unify caching
-                      across services or functions. If not provided, uses function name.
+            cache_key: Optional overridden custom key prefix for the cache to unify caching
+                      across services or functions. If not provided, we use function name + args.
             normalize_args: Whether to normalize argument values (sorts lists/dicts) for consistent
                            cache keys across different argument orders. Set to True when
                            cache key consistency is important across different services.
@@ -217,9 +217,7 @@ class EntityCache:
                                 Default: (str, int, UUID). Strongly recommended to use the
                                 global_supported_id_types instance parameter instead of
                                 overriding per function.
-            scope (deprecated): Determines the scope of cache sharing, with two possible values:
-                  - 'function' (default): Function first caching with no cache sharing between same entity signatures
-                  - 'entity': Entity first caching - different functions with same entity and arguments share cache
+            scope (deprecated): Determines the scope of cache sharing. Not used in this version.
             serializer: Custom function to serialize data before caching. If not provided, uses the default
                         serializer set on the cache instance.
             deserialize: Custom function to deserialize cached data. If not provided, uses the default deserializer
@@ -247,9 +245,8 @@ class EntityCache:
                     effective_id_key = extractor(entity)
                     logger.debug(f"Using ORM extractor for {entity_name} model")
             except (ImportError, ValueError) as e:
-                # If ORM support fails, fall back to using class name
-                logger.warning(f"ORM detection failed: {e}. Using class name as entity.")
-                effective_entity = entity.__name__.lower()
+                # If ORM support fails, raise an error
+                raise ValueError(f"ORM detection failed: {e}. Using class name as entity.")
 
         supported_id_types = supported_id_types or self.supported_primitive_id_types
         # if didn't detect ORM model, use entity as is
