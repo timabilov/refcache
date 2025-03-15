@@ -91,8 +91,8 @@ memory_cache = EntityCache()
 #### With Entity Tracking
 
 ```python
-# Cache function results and track entity references
-@cache('user') # "user" - tags a system-wide entity for unified tracking by their reference
+# Cache function results and track entity reference for invalidation
+@cache('user') # "user" - is entity used later *only for invalidation*
 def get_user(user_id):
     # Your database/interservice query here
     return {"id": user_id, "name": f"User {user_id}"}
@@ -243,8 +243,8 @@ Now, imagine caching the varied outputs of these functions while maintaining inv
 
 When a function is decorated with `@cache(entity="user")`:
 
-1. The decorator **caches the function result as we know it*
-2. It **extracts entity reference IDs** from any result (e.g., `{"id": 42, ...}` or list of `User`s)
+1. The decorator **caches the function result as usual**
+2. It **extracts entity reference IDs** from any result (e.g., `[{"id": 42, ...}, ...]` or `[User(id=42,...), ...]`)
 3. It **creates an reverse index** mapping for each entity to cache specific **function calls** containing it
 
 When an entity changes:
@@ -257,7 +257,6 @@ When an entity changes:
 Effectively, you end up using traditional cache decorator that can be granularly invalidated within your ecosystem giving you near real-time data consistency. This means you don't need to remember all the different ways an entity might be cached and glue that into your read codebase - just invalidate by entity ID, and all relevant caches are automatically cleared.
 
 >❗ To ensure cache consistency across the system, please bear in mind these rules:
->* Maintain idempotency across all functions using the same cache key (cache key being - function or entity signature)
 >* Ensure entity identity consistency - an entity with a specific ID must represent the identical data object across all system components.
 
 ## Why this library?
@@ -275,7 +274,7 @@ Write-through caching keeps data consistent but couples your read and cache laye
 
 ### What it does?
 
-This library provides the classic and convenient read-through caching decorator for your functions with significant enhancement. When an entity referenced in those specific function calls is updated, the cache can be easily invalidated either automatically or manually, as long as you provide the reference to track it. It integrates easily into your existing codebase—unlike write-through caching—and supports a wide range of data structures, including Django ORM models, SQLAlchemy objects, or basic lists of dictionaries, with minimal overhead. This approach allows to use write-around caching very effectively by tracking all invalidation points across your platform while maintaining the same flexibility of read-through cache
+This library provides the classic and convenient read-through caching decorator for your functions with significant enhancement. When an entity is updated, it traces all function calls containing this entity and clears the cache either automatically or manually, as long as you provide the reference to track it in function decorator. It integrates seamleassly into your existing codebase—unlike write-through caching—and supports a wide range of data structures, including Django ORM models, SQLAlchemy objects, or basic lists of dictionaries, with minimal overhead. This approach allows to use write-around caching very effectively by tracking all invalidation points across your platform while maintaining the same flexibility of read-through cache
 
 ## Advanced Usage
 
@@ -302,7 +301,7 @@ def get_filtered_users(user_ids):  # Completely different function, but same log
     
     return [{"id": user_ids[0], "name": "Sam Jones"}, {"id": user_ids[2], "name": "Another Sam Jones"}]
 
-get_filtered_user([1, 2]) # after caching this call, we know id=1 links to this and above `get_user_from_auth(1)` call
+get_filtered_user([1, 2])  # cached now, also 2 entities are referencing this function call.
 
 # In any of your services
 
