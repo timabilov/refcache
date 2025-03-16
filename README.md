@@ -91,11 +91,11 @@ memory_cache = EntityCache()
 #### With Entity Tracking
 
 ```python
-# Cache function results and track entity reference *only* for invalidation
-@cache.track('user')  # Track 'user' entities for targeted invalidation
-def get_user(user_id):
-    # database/interservice query...
-    # 'id' is default id_key for tracking the 'user' entity
+# Cache function results and track entity reference *only* for targeted invalidation
+@cache('user')  # or `@cache.tracks('user')`
+def get_user(user_id): 
+    # db/interservice query...
+    # 'id' = default id_key of entity
     return {"id": user_id, "name": f"User {user_id}"}
 
 # Get user (will be cached)
@@ -105,7 +105,7 @@ user = get_user(42)
 @cache.invalidates('user')
 def update_users(user_ids, data):
     # Update in database...
-    # The return value is used to extract entity IDs for invalidation of all function calls that this two entities affect
+    # The return value is used to invalidate all cached functions that was containing this user ids in return
     return [{"id": user_ids[0], "name": data.get("name")},  {"id": user_ids[1], "name": data.get("name")}]
 
 # Or manually invalidate
@@ -115,7 +115,6 @@ def delete_user(user_id):
     cache.invalidate_entity("user", user_id)
 ```
 
-You can also use the expressive alias `@cache.tracks('user')` instead of `@cache('user')`.
 
 #### Plain Caching
 
