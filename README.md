@@ -105,7 +105,7 @@ user = get_user(42)
 @cache.invalidates('user')
 def update_users(user_ids, data):
     # Update in database...
-    # The return value is used to invalidate all cached functions that was containing this user ids in return
+    # The return value is used to invalidate all cached functions that was containing this user ids
     return [{"id": user_ids[0], "name": data.get("name")},  {"id": user_ids[1], "name": data.get("name")}]
 
 # Or manually invalidate
